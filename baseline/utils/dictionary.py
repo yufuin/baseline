@@ -67,28 +67,12 @@ class Dictionary:
         assert len_repr_to_id == len_id_to_repr
         return len_repr_to_id
 
-"""
+class BILOUDictionary:
+    # for BILOU tagged labels
+    # this dictionary should hold transition information
+    pass
+
 class MultiDictionary:
-    def __init__(self):
-        pass
-
-    def to_id(self, target, category, allow_new):
-        target_dict = self.dicts[category]
-        if target in target_dict:
-            return target_dict[target]
-        else:
-            if allow_new:
-                new_id = len(target_dict)
-                target_dict[target] = new_id
-                return new_id
-            else:
-                return target_dict[self.unk_repr]
-
-    def to_id_recursive(self, targets, category, allow_new):
-        if isinstance(targets, list):
-            return [to_id_recursive(targets=target, category=category, allow_new=allow_new) for target in targets]
-        elif isinstance(targets, dict):
-            return {key:to_id_recursive(targets=value, category=category, allow_new=allow_new) for key, value in targets.items()}
-        else:
-            return to_id(target=targets, category=category, allow_new=allow_new)
-"""
+    # d = MultiDictionary(words="base", POSs="base", "entities"="bilou")
+    # train = d.to_id_recursive(json.load(open("train.json")), allow_new=True)
+    pass
