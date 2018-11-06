@@ -52,19 +52,20 @@ def load(sent_path, pos_path, ner_path, do_unnormalize):
     with open(sent_path) as f:
         for line in f:
             sent_id, *words = line.strip().split()
-            assert len(words) > 0
+            sequence_length = len(words)
+            assert sequence_length > 0
             assert sent_id[-1] == ":"
             sent_id = sent_id[:-1]
             assert sent_id not in data
 
             if do_unnormalize: words = unnormalize(words)
 
-            data[sent_id] = {"words": words}
+            data[sent_id] = {"words": words, "sequence_length":sequence_length}
 
     with open(pos_path) as f:
         for line in f:
             sent_id, colon, *poss = line.strip().split()
-            assert len(poss) == len(data[sent_id]["words"])
+            assert len(poss) == data[sent_id]["sequence_length"]
             assert colon == ":"
             assert sent_id in data
             assert "POSs" not in data[sent_id]
@@ -74,14 +75,20 @@ def load(sent_path, pos_path, ner_path, do_unnormalize):
     with open(ner_path) as f:
         for line in f:
             sent_id, colon, *entities = line.strip().split()
-            assert len(entities) == len(data[sent_id]["words"])
+            assert len(entities) == data[sent_id]["sequence_length"]
             assert colon == ":"
             assert sent_id in data
             assert "entities" not in data[sent_id]
 
             data[sent_id]["entities"] = entities
 
-    return data
+    list_data = []
+    for sent_id, values in data.items():
+        copied = dict(values)
+        copied["sentence_id"] = sent_id
+        list_data.append(copied)
+
+    return list_data
 
 def unnormalize(words, do_comma=True, do_rb=True, do_cb=True, do_sb=True):
     unnormalized = []
