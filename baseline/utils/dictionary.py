@@ -1,6 +1,6 @@
 import json
 
-class Dictionary:
+class BasicDictionary:
     _UNK_REPR = "$$UNK$$"
 
     def __init__(self, dump=None):
@@ -73,6 +73,6 @@ class BILOUDictionary:
     pass
 
 class MultiDictionary:
-    # d = MultiDictionary(words="base", POSs="base", "entities"="bilou")
+    # d = MultiDictionary(words="basic", POSs="basic", "entities"="bilou")
     # train = d.to_id_recursive(json.load(open("train.json")), allow_new=True)
     pass

@@ -10,9 +10,9 @@ class DictionaryTestCase(unittest.TestCase):
         pass
 
     def test_initialize(self):
-        dictionary = D.Dictionary()
+        dictionary = D.BasicDictionary()
 
-        origin_unk_repr = D.Dictionary._UNK_REPR
+        origin_unk_repr = D.BasicDictionary._UNK_REPR
         self.assertEqual(origin_unk_repr, dictionary.unk_repr)
 
         self.assertEqual(len(dictionary), 1)
@@ -26,7 +26,7 @@ class DictionaryTestCase(unittest.TestCase):
         self.assertEqual(reverted_unk_repr, dictionary.unk_repr)
 
     def test_dump_load(self):
-        dictionary1 = D.Dictionary()
+        dictionary1 = D.BasicDictionary()
         token1_id = dictionary1.to_id("token1", allow_new=True)
         token2_id = dictionary1.to_id("token2", allow_new=True)
         self.assertNotEqual(token1_id, token2_id)
@@ -34,7 +34,7 @@ class DictionaryTestCase(unittest.TestCase):
         self.assertNotEqual(dictionary1.unk_id, token2_id)
         dump = dictionary1.dump()
 
-        dictionary2 = D.Dictionary()
+        dictionary2 = D.BasicDictionary()
         none_id = dictionary2.to_id("token1", allow_new=False)
         self.assertEqual(none_id, dictionary2.unk_id)
         none_id = dictionary2.to_id("token2", allow_new=False)
@@ -48,7 +48,7 @@ class DictionaryTestCase(unittest.TestCase):
         self.assertEqual(dictionary1.unk_id, dictionary2.unk_id)
 
     def test_to_id_and_repr(self):
-        dictionary = D.Dictionary()
+        dictionary = D.BasicDictionary()
 
         repr_set1 = ["foo", "bar", 42]
         ids = [dictionary.to_id(r, allow_new=True) for r in repr_set1]
@@ -64,7 +64,7 @@ class DictionaryTestCase(unittest.TestCase):
         self.assertNotEqual(dictionary.to_repr(dictionary.to_id("foobar", allow_new=False)), "foobar")
 
     def test_to_id_and_repr_recursive(self):
-        dictionary = D.Dictionary()
+        dictionary = D.BasicDictionary()
 
         reprs = {"foo": ["token1", "token2", {"bar":"token1", "baz":"token1"}, ["token3", "token4"]],
                  "foobar": {"foofoo": "token5", "barbar": "token3"}}
@@ -90,7 +90,7 @@ class DictionaryTestCase(unittest.TestCase):
         self.assertEqual(reprs, dictionary.to_repr_recursive(ids))
 
     def test_len(self):
-        dictionary = D.Dictionary()
+        dictionary = D.BasicDictionary()
         self.assertEqual(len(dictionary), 1)
 
         repr_set = ["foo", "bar", 42, "foo"]
