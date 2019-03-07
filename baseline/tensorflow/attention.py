@@ -15,7 +15,6 @@ def sinusoid_position_encoding(sequence_length:"[]", dim:"[]", dtype=tf.float32,
 
 
 class MultiHeadReduction(tf.keras.layers.Layer):
-    clip_max = 20.0
     epsilon = 1e-10
     def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False, key_activation:"callable"=None, **kwargs):
         assert dim_sum_output % num_head == 0
@@ -91,7 +90,9 @@ class MultiHeadReduction(tf.keras.layers.Layer):
         us = tf.reduce_sum(keys*self.query_kernel, axis=-1) # [batch_size, seq_len, num_head]
         if self.use_bias:
             us = us + self.query_bias
-        us = tf.clip_by_value(us / self._root_d_k, -self.clip_max, self.clip_max) # [batch_size, seq_len, num_head]
+        us = us / self._root_d_k # [batch_size, seq_len, num_head]
+        us = us - tf.reduce_max(us, axis=1, keepdims=True) # to avoid overflow
+
         exp_us = tf.exp(us) # [batch_size, seq_len, num_head]
         if mask is not None:
             exp_us = exp_us * seq_mask
@@ -123,7 +124,6 @@ class MultiHeadReduction(tf.keras.layers.Layer):
 
 
 class MultiHeadSelfAttention:
-    clip_max = 20.0
     epsilon = 1e-10
     def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False):
         assert dim_sum_output % num_head == 0
@@ -152,7 +152,8 @@ class MultiHeadSelfAttention:
         kvqs = tf.reshape(concat_kvqs, [batch_size, max_seq_len, 3*self.num_head, self.dim_each_output])
         keys, values, queries = tf.split(kvqs, 3, axis=2) # 3x[batch_size, seq_len, num_head, dim_each_output]
 
-        us = tf.clip_by_value(tf.reduce_sum(keys[:,tf.newaxis]*queries[:,:,tf.newaxis], axis=-1, keepdims=True) / self._root_d_k, -self.clip_max, self.clip_max) # [batch_size, query_seq_len, key_seq_len, num_head, 1]
+        us = tf.reduce_sum(keys[:,tf.newaxis]*queries[:,:,tf.newaxis], axis=-1, keepdims=True) / self._root_d_k # [batch_size, query_seq_len, key_seq_len, num_head, 1]
+        us = us - tf.reduce_max(us, axis=2, keepdims=True) # to avoid overflow
         exp_us = tf.exp(us) * seq_mask[:,:,tf.newaxis,tf.newaxis,tf.newaxis] * seq_mask[:,tf.newaxis,:,tf.newaxis,tf.newaxis] # [batch_size, query_seq_len, key_seq_len, num_head, 1]
         attentions = exp_us / (tf.reduce_sum(exp_us, axis=2, keepdims=True) + self.epsilon) # [batch_size, query_seq_len, key_seq_len, num_head, 1]
 
