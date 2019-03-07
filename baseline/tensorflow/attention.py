@@ -65,16 +65,16 @@ class MultiHeadReduction(tf.keras.layers.Layer):
 
         super(MultiHeadReduction, self).build(input_shape)
 
-    def call(self, inputs:"[batch_size,seq_len,dim_input]", mask=None):
+    def call(self, inputs:"[batch_size,seq_len,dim_input]", mask:"[batch_size, seq_len]"=None):
         shape = tf.shape(inputs)
         batch_size = shape[0]
         max_seq_len = shape[1]
         dtype = tf.dtypes.as_dtype(self.dtype or tf.keras.backend.floatx())
 
-        print("mask", mask)
         if mask is not None:
-            seq_mask = tf.cast(mask, tf.float32)
-            seq_mask = tf.expand_dims(seq_mask, 2)
+            if mask.dtype != dtype:
+                mask = tf.cast(mask, dtype)
+            seq_mask = tf.expand_dims(mask, 2)
 
         if self.position_type == "add":
             dim_input = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
