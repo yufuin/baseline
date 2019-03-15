@@ -1,6 +1,9 @@
 tmp/
 tmp.py
 
+# vscode
+.vscode/
+
 # emacs
 *~
 \#*\#
