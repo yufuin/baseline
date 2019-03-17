@@ -214,43 +214,73 @@ class MultiHeadReduction(MultiHeadAttention):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MultiHeadSelfAttention:
-    epsilon = 1e-10
-    def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False):
+class MultiHeadSelfAttention(MultiHeadAttention):
+    def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False, attention_type="dot-product", **kwargs):
         assert dim_sum_output % num_head == 0
         assert position_type in ["none", "add"]
 
+        super(MultiHeadSelfAttention, self).__init__(attention_type=attention_type, use_bias=use_bias, **kwargs)
         self.dim_sum_output = dim_sum_output
         self.num_head = num_head
         self.dim_each_output = self.dim_sum_output // self.num_head
         self.position_type = str(position_type)
-        self.use_bias = use_bias
 
-        initializer = tf.glorot_normal_initializer()
-        self.fc_kvqs = tf.keras.layers.Dense(3*self.dim_sum_output, use_bias=self.use_bias, kernel_initializer=initializer)
-        self._root_d_k = tf.constant(np.sqrt(self.dim_each_output), dtype=tf.float32)
+        self.supports_masking = True
+        self.input_spec = tf.keras.layers.InputSpec(ndim=3)
 
-    def __call__(self, inputs:"[batch_size,seq_len,dim_input]", seq_lens:"[batch_size]", batch_size:"[]"=None, max_seq_len:"[]"=None):
-        if batch_size is None: batch_size = tf.shape(inputs)[0]
-        if max_seq_len is None: max_seq_len = tf.shape(inputs)[1]
-        seq_mask = tf.sequence_mask(seq_lens, max_seq_len, dtype=tf.float32) # [batch_size, seq_len]
+    def build(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
+        input_shape = input_shape.with_rank(3)
+        if input_shape[2].value is None:
+            raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
+        self.dim_input = input_shape[-1].value
+        self.input_spec = tf.keras.layers.InputSpec(ndim=3, axes={2:self.dim_input})
 
+        self.kvq_kernel = self.add_weight(
+            name="kvq_kernel",
+            shape=[self.dim_input, 3, self.num_head, self.dim_each_output],
+            initializer=tf.keras.initializers.glorot_normal())
+        if self.use_bias:
+            self.value_bias = self.add_weight(
+                name="value_bias",
+                shape = [self.num_head, self.dim_each_output],
+                initializer=tf.keras.initializers.zeros())
+
+        super(MultiHeadSelfAttention, self).attention_build(num_head=self.num_head, dim_query=self.dim_each_output, dim_key=self.dim_each_output)
+        super(MultiHeadSelfAttention, self).build(input_shape)
+
+    def call(self, inputs:"[batch_size,seq_len,dim_input]", mask:"[batch_size, seq_len]"=None):
         if self.position_type == "add":
+            max_seq_len = tf.shape(inputs)[1]
+            dtype = tf.dtypes.as_dtype(self.dtype or tf.keras.backend.floatx())
             dim_input = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
-            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=dim_input)
+            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=dim_input, dtype=dtype)
 
-        concat_kvqs = self.fc_kvqs(inputs) # [batch_size, seq_len, 3*num_head*dim_each_output]
-        kvqs = tf.reshape(concat_kvqs, [batch_size, max_seq_len, 3*self.num_head, self.dim_each_output])
-        keys, values, queries = tf.split(kvqs, 3, axis=2) # 3x[batch_size, seq_len, num_head, dim_each_output]
+        kvqs = tf.tensordot(inputs, self.kvq_kernel, 1) # [batch_size, seq_len, 3, num_head, dim_each_output]
+        keys, values, queries = tf.unstack(kvqs, axis=2) # 3x[batch_size, seq_len, num_head, dim_each_output]
+        if self.use_bias:
+            values = values + self.value_bias
 
-        us = tf.reduce_sum(keys[:,tf.newaxis]*queries[:,:,tf.newaxis], axis=-1, keepdims=True) / self._root_d_k # [batch_size, query_seq_len, key_seq_len, num_head, 1]
-        us = us - tf.reduce_max(us, axis=2, keepdims=True) # to avoid overflow
-        exp_us = tf.exp(us) * seq_mask[:,:,tf.newaxis,tf.newaxis,tf.newaxis] * seq_mask[:,tf.newaxis,:,tf.newaxis,tf.newaxis] # [batch_size, query_seq_len, key_seq_len, num_head, 1]
-        attentions = exp_us / (tf.reduce_sum(exp_us, axis=2, keepdims=True) + self.epsilon) # [batch_size, query_seq_len, key_seq_len, num_head, 1]
+        reduction = self.dot_product_attend(keys=keys, values=values, queries=queries, key_mask=mask) # [batch_size, seq_len, dim_sum_output]
+        return reduction # [batch_size, dim_sum_output]
 
-        reduction = tf.reshape(tf.reduce_sum(values[:,tf.newaxis] * attentions, axis=2), [batch_size, max_seq_len, self.dim_sum_output])
-        self.attentions = tf.squeeze(attentions, axis=-1) # [batch_size, query_seq_len, key_seq_len, num_head]
-        return reduction # [batch_size, max_seq_len, dim_sum_output]
+    def compute_output_shape(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
+        input_shape = input_shape.with_rank(3)
+        if input_shape[2].value is None:
+            raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
+        return input_shape[:2].concatenate(self.dim_sum_output)
+
+    #def compute_mask(self, inputs, mask): same mask, not need to override.
+
+    def get_config(self):
+        config = {
+            "dim_sum_output": self.dim_sum_output,
+            "num_head": self.num_head,
+            "position_type": self.position_type,
+            }
+        base_config = super(MultiHeadSelfAttention, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
 
 
 
