@@ -162,16 +162,15 @@ class MultiHeadReduction(MultiHeadAttention):
             name="kv_kernel",
             shape=[self.dim_input, 2, self.num_head, self.dim_each_output],
             initializer=tf.keras.initializers.glorot_normal())
-        if self.use_bias:
-            self.value_bias = self.add_weight(
-                name="value_bias",
-                shape = [self.num_head, self.dim_each_output],
-                initializer=tf.keras.initializers.zeros())
-
         self.query_kernel = self.add_weight(
             name="query_kernel",
             shape=[self.num_head, self.dim_each_output],
             initializer=tf.keras.initializers.random_normal(mean=0.0, stddev=1.0))
+        if self.use_bias:
+            self.value_bias = self.add_weight(
+                name="value_bias",
+                shape = [self.dim_sum_output],
+                initializer=tf.keras.initializers.zeros())
 
         super(MultiHeadReduction, self).attention_build(num_head=self.num_head, dim_query=self.dim_each_output, dim_key=self.dim_each_output)
         super(MultiHeadReduction, self).build(input_shape)
@@ -185,12 +184,12 @@ class MultiHeadReduction(MultiHeadAttention):
 
         kvs = tf.tensordot(inputs, self.kv_kernel, 1) # [batch_size, seq_len, 2, num_head, dim_each_output]
         keys, values = tf.unstack(kvs, axis=2) # 2x[batch_size, seq_len, num_head, dim_each_output]
-        if self.use_bias:
-            values = values + self.value_bias
         if self.key_activation is not None:
             keys = self.key_activation(keys)
 
         reduction = tf.squeeze(self.dot_product_attend(keys=keys, values=values, queries=self.query_kernel, key_mask=mask), 1) # [batch_size, dim_sum_output]
+        if self.use_bias:
+            reduction = reduction + self.value_bias
         return reduction # [batch_size, dim_sum_output]
 
     def compute_output_shape(self, input_shape):
@@ -243,7 +242,7 @@ class MultiHeadSelfAttention(MultiHeadAttention):
         if self.use_bias:
             self.value_bias = self.add_weight(
                 name="value_bias",
-                shape = [self.num_head, self.dim_each_output],
+                shape = [self.dim_sum_output],
                 initializer=tf.keras.initializers.zeros())
 
         super(MultiHeadSelfAttention, self).attention_build(num_head=self.num_head, dim_query=self.dim_each_output, dim_key=self.dim_each_output)
@@ -258,10 +257,10 @@ class MultiHeadSelfAttention(MultiHeadAttention):
 
         kvqs = tf.tensordot(inputs, self.kvq_kernel, 1) # [batch_size, seq_len, 3, num_head, dim_each_output]
         keys, values, queries = tf.unstack(kvqs, axis=2) # 3x[batch_size, seq_len, num_head, dim_each_output]
-        if self.use_bias:
-            values = values + self.value_bias
 
         reduction = self.dot_product_attend(keys=keys, values=values, queries=queries, key_mask=mask) # [batch_size, seq_len, dim_sum_output]
+        if self.use_bias:
+            reduction = reduction + self.value_bias
         return reduction # [batch_size, dim_sum_output]
 
     def compute_output_shape(self, input_shape):
