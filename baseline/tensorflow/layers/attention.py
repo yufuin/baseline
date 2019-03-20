@@ -147,12 +147,12 @@ class MultiHeadReduction(BaseMultiHeadAttention):
         input_shape = input_shape.with_rank(3)
         if input_shape[2].value is None:
             raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
-        self.dim_input = input_shape[-1].value
-        self.input_spec = tf.keras.layers.InputSpec(ndim=3, axes={2:self.dim_input})
+        self.input_dim = input_shape[-1].value
+        self.input_spec = tf.keras.layers.InputSpec(ndim=3, axes={2:self.input_dim})
 
         self.kv_kernel = self.add_weight(
             name="kv_kernel",
-            shape=[self.dim_input, 2, self.num_head, self.dim_each_output],
+            shape=[self.input_dim, 2, self.num_head, self.dim_each_output],
             initializer=tf.keras.initializers.glorot_normal())
         self.query_kernel = self.add_weight(
             name="query_kernel",
@@ -167,12 +167,12 @@ class MultiHeadReduction(BaseMultiHeadAttention):
         super(MultiHeadReduction, self).attention_build(num_head=self.num_head, dim_query=self.dim_each_output, dim_key=self.dim_each_output)
         super(MultiHeadReduction, self).build(input_shape)
 
-    def call(self, inputs:"[batch_size,seq_len,dim_input]", mask:"[batch_size, seq_len]"=None):
+    def call(self, inputs:"[batch_size,seq_len,input_dim]", mask:"[batch_size, seq_len]"=None):
         if self.position_type == "add":
             max_seq_len = tf.shape(inputs)[1]
             dtype = tf.dtypes.as_dtype(self.dtype or tf.keras.backend.floatx())
-            dim_input = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
-            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=dim_input, dtype=dtype)
+            input_dim = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
+            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=input_dim, dtype=dtype)
 
         kvs = tf.tensordot(inputs, self.kv_kernel, 1) # [batch_size, seq_len, 2, num_head, dim_each_output]
         keys, values = tf.unstack(kvs, axis=2) # 2x[batch_size, seq_len, num_head, dim_each_output]
@@ -224,12 +224,12 @@ class MultiHeadSelfAttention(BaseMultiHeadAttention):
         input_shape = input_shape.with_rank(3)
         if input_shape[2].value is None:
             raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
-        self.dim_input = input_shape[-1].value
-        self.input_spec = tf.keras.layers.InputSpec(ndim=3, axes={2:self.dim_input})
+        self.input_dim = input_shape[-1].value
+        self.input_spec = tf.keras.layers.InputSpec(ndim=3, axes={2:self.input_dim})
 
         self.kvq_kernel = self.add_weight(
             name="kvq_kernel",
-            shape=[self.dim_input, 3, self.num_head, self.dim_each_output],
+            shape=[self.input_dim, 3, self.num_head, self.dim_each_output],
             initializer=tf.keras.initializers.glorot_normal())
         if self.use_bias:
             self.value_bias = self.add_weight(
@@ -240,12 +240,12 @@ class MultiHeadSelfAttention(BaseMultiHeadAttention):
         super(MultiHeadSelfAttention, self).attention_build(num_head=self.num_head, dim_query=self.dim_each_output, dim_key=self.dim_each_output)
         super(MultiHeadSelfAttention, self).build(input_shape)
 
-    def call(self, inputs:"[batch_size,seq_len,dim_input]", mask:"[batch_size, seq_len]"=None):
+    def call(self, inputs:"[batch_size,seq_len,input_dim]", mask:"[batch_size, seq_len]"=None):
         if self.position_type == "add":
             max_seq_len = tf.shape(inputs)[1]
             dtype = tf.dtypes.as_dtype(self.dtype or tf.keras.backend.floatx())
-            dim_input = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
-            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=dim_input, dtype=dtype)
+            input_dim = inputs.shape[2] if inputs.shape[2].value is not None else tf.shape(inputs)[2]
+            inputs = inputs + sinusoid_position_encoding(sequence_length=max_seq_len, dim=input_dim, dtype=dtype)
 
         kvqs = tf.tensordot(inputs, self.kvq_kernel, 1) # [batch_size, seq_len, 3, num_head, dim_each_output]
         keys, values, queries = tf.unstack(kvqs, axis=2) # 3x[batch_size, seq_len, num_head, dim_each_output]
