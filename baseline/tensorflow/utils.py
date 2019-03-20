@@ -1,5 +1,8 @@
 import tensorflow as tf
 
+def elu_clip(arg, lower=-16.0, upper=16.0):
+    return upper - tf.nn.elu((upper - lower) - tf.nn.elu(arg-lower))
+
 def sinusoid_position_encoding(sequence_length:"[]", dim:"[]", dtype=tf.float32, wave=10000) -> "[sequence_length, dim]":
     half_dim = dim // 2
     d = tf.cast(tf.range(half_dim), dtype) # [dim//2]
