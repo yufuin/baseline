@@ -1,1 +1,1 @@
-from baseline.utils import dictionary
+from . import dictionary

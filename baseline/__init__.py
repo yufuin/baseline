@@ -1,2 +1,2 @@
-from baseline import utils
-from baseline import tensorflow
+from . import utils
+from . import tensorflow
