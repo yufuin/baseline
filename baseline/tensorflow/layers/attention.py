@@ -3,14 +3,14 @@ import tensorflow as tf
 
 from baseline.tensorflow.utils import sinusoid_position_encoding
 
-class MultiHeadAttentionBase(tf.keras.layers.Layer):
+class BaseMultiHeadAttention(tf.keras.layers.Layer):
     """
     This is the base class for multi-head attention.
     """
     epsilon = 1e-10
 
     def __init__(self, attention_type:"dot-product/additive"="dot-product", use_bias=False, dim_additive=None, additive_activation="tanh", **kwargs):
-        super(MultiHeadAttentionBase, self).__init__(**kwargs)
+        super(BaseMultiHeadAttention, self).__init__(**kwargs)
 
         self.attention_type = str(attention_type)
         if self.attention_type == "dot-product":
@@ -27,7 +27,7 @@ class MultiHeadAttentionBase(tf.keras.layers.Layer):
         self.attention_built = False
 
     def call(self, inputs):
-        raise NotImplementedError("MultiHeadAttentionBase is the abstract class.")
+        raise NotImplementedError("BaseMultiHeadAttention is the abstract class.")
 
     def attention_build(self, num_head=None, dim_query=None, dim_key=None):
         if self.attention_type == "dot-product":
@@ -69,7 +69,7 @@ class MultiHeadAttentionBase(tf.keras.layers.Layer):
 
     def build(self, input_shape):
         assert self.attention_built, "must have called self.attention_build"
-        super(MultiHeadAttentionBase, self).build(input_shape)
+        super(BaseMultiHeadAttention, self).build(input_shape)
 
     def dot_product_attend(self, queries:"[batch_size,query_seq_len,num_head,dim_key]", keys:"[batch_size,key_seq_len,num_head,dim_key]", values:"[batch_size,key_seq_len,num_head,dim_value]", key_mask:"[batch_size,key_seq_len]"=None):
         dtype = tf.dtypes.as_dtype(self.dtype or tf.keras.backend.floatx())
@@ -123,11 +123,11 @@ class MultiHeadAttentionBase(tf.keras.layers.Layer):
         if self.attention_type == "additive":
             config["dim_additive"] = self.dim_additive
             config["additive_activation"] = tf.keras.activations.serialize(self.additive_activation)
-        base_config = super(MultiHeadAttentionBase, self).get_config()
+        base_config = super(BaseMultiHeadAttention, self).get_config()
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MultiHeadReduction(MultiHeadAttentionBase):
+class MultiHeadReduction(BaseMultiHeadAttention):
     def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False, key_activation:"callable"=None, attention_type="dot-product", **kwargs):
         assert dim_sum_output % num_head == 0
         assert position_type in ["none", "add"]
@@ -205,7 +205,7 @@ class MultiHeadReduction(MultiHeadAttentionBase):
         return dict(list(base_config.items()) + list(config.items()))
 
 
-class MultiHeadSelfAttention(MultiHeadAttentionBase):
+class MultiHeadSelfAttention(BaseMultiHeadAttention):
     def __init__(self, dim_sum_output, num_head, position_type:"none/add"="none", use_bias=False, attention_type="dot-product", **kwargs):
         assert dim_sum_output % num_head == 0
         assert position_type in ["none", "add"]
