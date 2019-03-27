@@ -5,7 +5,7 @@ tf.enable_eager_execution()
 def to_raw(tensor):
     return tensor.numpy().tolist()
 
-from baseline.tensorflow import utils as U
+from baseline.tf import utils as U
 
 class EluClipTestCase(unittest.TestCase):
     def setUp(self):

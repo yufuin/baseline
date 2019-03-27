@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-from baseline.tensorflow.utils import sinusoid_position_encoding
+from baseline.tf.utils import sinusoid_position_encoding
 
 class BaseMultiHeadAttention(tf.keras.layers.Layer):
     """
