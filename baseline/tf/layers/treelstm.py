@@ -1,12 +1,10 @@
 import tensorflow as tf
 
-
-class BottomUpChildSumTreeLSTM(tf.keras.layers.Layer):
+class BaseChildSumTreeLSTM(tf.keras.layers.Layer):
     def __init__(self, units, **kwargs):
-        super(BottomUpChildSumTreeLSTM, self).__init__(**kwargs)
+        super(BaseChildSumTreeLSTM, self).__init__(**kwargs)
 
         self.units = units
-
         self.input_spec = tf.keras.layers.InputSpec(ndim=3)
 
     def build(self, input_shape):
@@ -34,11 +32,39 @@ class BottomUpChildSumTreeLSTM(tf.keras.layers.Layer):
             shape=[4*self.units],
             initializer=tf.keras.initializers.zeros())
 
-        super(BottomUpChildSumTreeLSTM, self).build(input_shape)
+        super(BaseChildSumTreeLSTM, self).build(input_shape)
 
+    def aggregate_nodes(self, target_iou_xb, target_child_sum_hs, target_gated_child_sum_cs):
+        iou_h = tf.matmul(target_child_sum_hs, self.h_iou_kernel)
+        iou = target_iou_xb + iou_h
+        i, o, u = tf.split(iou, 3, axis=1)
+        memory = tf.nn.sigmoid(i) * tf.nn.tanh(u) + target_gated_child_sum_cs
+        output = tf.nn.sigmoid(o) * tf.nn.tanh(memory)
+        return output, memory
+    def gate_memory(self, output, memory, parent_f_xb):
+        parent_f_h = tf.matmul(output, self.h_f_kernel)
+        parent_f = parent_f_h + parent_f_xb
+        gated_memory = tf.nn.sigmoid(parent_f) * memory
+        return gated_memory
+
+    def compute_output_shape(self, input_shape):
+        input_shape = tf.TensorShape(input_shape)
+        input_shape = input_shape.with_rank(3)
+        if input_shape[2].value is None:
+            raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
+        return input_shape[:2].concatenate(self.units)
+
+    def get_config(self):
+        config = {
+            "units": self.units,
+            }
+        base_config = super(BaseChildSumTreeLSTM, self).get_config()
+        return dict(list(base_config.items()) + list(config.items()))
+
+class BottomUpChildSumTreeLSTM(BaseChildSumTreeLSTM):
     def call(self, inputs, parents, post_orders):
         """
-        If parents[b,n] == -1, it indicates the corresponding node has no parent. (i.e., root node)
+        If parents[b,n] == -1, it indicates the corresponding node has no parent. (i.e., root node or padding)
         If post_orders[b,o] == -1, it is considered as the padded value
                                    and the correspondig calculation will be skipped.
         """
@@ -66,19 +92,6 @@ class BottomUpChildSumTreeLSTM(tf.keras.layers.Layer):
         fiou_xb = tf.tensordot(inputs, self.x_fiou_kernel, 1) + self.fiou_bias # [batch_size, seq_len, 4*units]
         f_xb, iou_xb = tf.split(fiou_xb, [self.units, 3*self.units], axis=-1) # [batch_size, seq_len, units], [batch_size, seq_len, 3*units]
 
-        def aggregate_nodes(target_iou_xb, target_child_sum_hs, target_gated_child_sum_cs):
-            iou_h = tf.matmul(target_child_sum_hs, self.h_iou_kernel)
-            iou = target_iou_xb + iou_h
-            i, o, u = tf.split(iou, 3, axis=1)
-            memory = tf.nn.sigmoid(i) * tf.nn.tanh(u) + target_gated_child_sum_cs
-            output = tf.nn.sigmoid(o) * tf.nn.tanh(memory)
-            return output, memory
-        def gate_memory(output, memory, parent_f_xb):
-            parent_f_h = tf.matmul(output, self.h_f_kernel)
-            parent_f = parent_f_h + parent_f_xb
-            gated_memory = tf.nn.sigmoid(parent_f) * memory
-            return gated_memory
-
         sorted_output_mask = tf.expand_dims(sorted_output_mask, 2) # [batch_size, order_len, 1]
         sorted_propagete_parent_mask = tf.expand_dims(sorted_propagete_parent_mask, 2) # [batch_size, order_len, 1]
         def loop(step, hs, child_sum_hs, gated_child_sum_cs):
@@ -90,10 +103,10 @@ class BottomUpChildSumTreeLSTM(tf.keras.layers.Layer):
             step_target_iou_xb = tf.gather_nd(params=iou_xb, indices=step_target_indicators)
             step_target_child_sum_hs = tf.gather_nd(params=child_sum_hs, indices=step_target_indicators)
             step_target_gated_child_sum_cs = tf.gather_nd(params=gated_child_sum_cs, indices=step_target_indicators)
-            step_target_hs, step_target_cs = aggregate_nodes(step_target_iou_xb, step_target_child_sum_hs, step_target_gated_child_sum_cs)
+            step_target_hs, step_target_cs = self.aggregate_nodes(step_target_iou_xb, step_target_child_sum_hs, step_target_gated_child_sum_cs)
 
             step_parent_f_xb = tf.gather_nd(params=f_xb, indices=step_parent_indicators)
-            step_gated_memory = gate_memory(step_target_hs, step_target_cs, step_parent_f_xb)
+            step_gated_memory = self.gate_memory(step_target_hs, step_target_cs, step_parent_f_xb)
 
             step_output_mask = sorted_output_mask[:,step] # TODO
             step_propagete_parent_mask = sorted_propagete_parent_mask[:, step] # TODO
@@ -112,18 +125,26 @@ class BottomUpChildSumTreeLSTM(tf.keras.layers.Layer):
 
         return hs
 
-    def compute_output_shape(self, input_shape):
-        input_shape = tf.TensorShape(input_shape)
-        input_shape = input_shape.with_rank(3)
-        if input_shape[2].value is None:
-            raise ValueError("The last dimension of the inputs must be defined: {}".format(input_shape))
-        return input_shape[:2].concatenate(self.units)
 
-    def get_config(self):
-        config = {
-            "units": self.units,
-            }
-        base_config = super(BottomUpChildSumTreeLSTM, self).get_config()
-        return dict(list(base_config.items()) + list(config.items()))
+def test_BottomUpChildSumTreeLSTM():
+    import numpy as np
+    batch_size = 2
+    input_dim = 3
+    max_seq_len = 5
+    units = 11
 
+    inputs = tf.constant(np.random.random(size=[batch_size, max_seq_len, input_dim]), dtype=tf.float32)
+    parents = tf.constant([[2, 0, -1, 2, -1], [-1, 0, 1, 2, 3]], dtype=tf.int32)
+    post_orders = tf.constant([[1,0,3,2,-1], [4,3,2,1,0]], dtype=tf.int32)
+    seq_lens = tf.constant([4,5], dtype=tf.int32)
 
+    treelstm = BottomUpChildSumTreeLSTM(units)
+    outputs = treelstm(inputs, parents=parents, post_orders=post_orders)
+
+    print(inputs.shape, outputs.shape)
+
+    with tf.Session() as sess:
+        tf.global_variables_initializer().run()
+        values = outputs.eval()
+
+    print(values)
