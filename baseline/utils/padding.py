@@ -1,11 +1,13 @@
+from itertools import zip_longest
+
 def get_padded_shape(seq):
     assert type(seq) in [list, tuple]
     shape = _get_padded_shape(seq)
     return shape
 def _get_padded_shape(seq, _current_depth=0):
-    if type(seq[0]) in [list, tuple]:
+    if any(type(deep) in [list, tuple] for deep in seq):
         deep_shapes = [_get_padded_shape(deep_seq, _current_depth=_current_depth+1) for deep_seq in seq]
-        deep_shape = [max(lens) for lens in zip(*deep_shapes)]
+        deep_shape = [max(lens) for lens in zip_longest(*deep_shapes, fillvalue=0)]
         return [len(seq), *deep_shape]
     else:
         return [len(seq)]
@@ -24,7 +26,10 @@ def _pad(seq, padding_value, shape, _current_depth=0):
         return seq + pad_vec, mask
     else:
         deep_seqs_and_masks = [_pad(deep_seq, padding_value=padding_value, shape=shape, _current_depth=_current_depth+1) for deep_seq in seq]
-        deep_seqs, deep_mask = map(list, list(zip(*deep_seqs_and_masks)))
+        if len(deep_seqs_and_masks) > 0:
+            deep_seqs, deep_mask = map(list, list(zip(*deep_seqs_and_masks)))
+        else:
+            deep_seqs, deep_mask = [], []
 
         pad_vec = [padding_value]
         zero_vec = [0]
