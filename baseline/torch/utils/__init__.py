@@ -4,7 +4,7 @@ del functions
 from .averagemanager import AverageManager
 del averagemanager
 
-from .dataloader import ExportableDataset, Exporter
+from .dataloader import SelectiveDataset, Selecter
 del dataloader
 
 

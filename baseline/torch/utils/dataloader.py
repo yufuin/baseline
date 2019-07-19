@@ -3,7 +3,7 @@ import torch.utils.data
 
 from baseline.utils import pad
 
-class Exporter:
+class Selecter:
     def __init__(self, origin, name=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
         self.origin = origin
         self._name = name
@@ -16,17 +16,17 @@ class Exporter:
     def name(self):
         return self._name if self._name is not None else self.origin
 
-class ExportableDataset(torch.utils.data.Dataset):
-    def __init__(self, instances, exporters, sort_key=None):
-        assert len(exporters) == len(set(e.name for e in exporters)), "the same name occurs multiple times."
+class SelectiveDataset(torch.utils.data.Dataset):
+    def __init__(self, instances, selecters, sort_key=None):
+        assert len(selecters) == len(set(s.name for s in selecters)), "the same name occurs multiple times."
 
         self.instances = list(instances)
-        self.exporters = list(exporters)
+        self.selecters = list(selecters)
         self.sort_key = sort_key
 
     def __getitem__(self, idx):
         instance = self.instances[idx]
-        return {exporter.name:instance[exporter.origin] for exporter in self.exporters}
+        return {selecter.name:instance[selecter.origin] for selecter in self.selecters}
 
     def __len__(self):
         return len(self.instances)
@@ -36,23 +36,23 @@ class ExportableDataset(torch.utils.data.Dataset):
             instances = sorted(instances, key=self.sort_key, reverse=True)
 
         outputs = dict()
-        for exporter in self.exporters:
-            key = exporter.name
+        for selecter in self.selecters:
+            key = selecter.name
             values = [instance[key] for instance in instances]
 
-            if exporter.padding:
-                values, masks = pad(values, exporter.padding_value)
+            if selecter.padding:
+                values, masks = pad(values, selecter.padding_value)
 
-                if exporter.padding_mask:
+                if selecter.padding_mask:
                     masks = torch.FloatTensor(masks)
-                    if exporter.device is not None:
-                        masks = masks.to(exporter.device)
+                    if selecter.device is not None:
+                        masks = masks.to(selecter.device)
                     outputs[key + "_mask"] = masks
 
-            if exporter.dtype is not None:
-                values = torch.tensor(values, dtype=exporter.dtype)
-                if exporter.device is not None:
-                    values = values.to(exporter.device)
+            if selecter.dtype is not None:
+                values = torch.tensor(values, dtype=selecter.dtype)
+                if selecter.device is not None:
+                    values = values.to(selecter.device)
 
             outputs[key] = values
 
@@ -69,11 +69,11 @@ instances = [i1,i2,i3,i1,i1,i1,i1]
 
 device = torch.device("cpu")
 #device = torch.device("cuda:0")
-exporters = [
-    Exporter("id"),
-    Exporter("foo", dtype=torch.long),
-    Exporter("bar", dtype=torch.float, device=device, padding=True, padding_value=-7, padding_mask=True),
-    Exporter("bar", name="hoge"),
+selecters = [
+    Selecter("id"),
+    Selecter("foo", dtype=torch.long),
+    Selecter("bar", dtype=torch.float, device=device, padding=True, padding_value=-7, padding_mask=True),
+    Selecter("bar", name="hoge"),
 ]
-dataset = ExportableDataset(instances, exporters, sort_key=lambda x:len(x["hoge"]))
+dataset = SelectiveDataset(instances, selecters, sort_key=lambda x:len(x["hoge"]))
 """
