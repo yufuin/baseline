@@ -81,22 +81,24 @@ class MultiDictionary:
 
     def encode(self, instances, allow_new):
         # instances: [{A:key_A_1, B:key_B_1,...}, {A:key_A_2, B:key_B_2,...}, ...]
-        outputs = []
-        for instance in instances:
+        if type(instances) in [list, tuple]:
+            return [self.encode(instance, allow_new=allow_new) for instance in instances]
+        else:
+            instance = instances
             encoded_instance = dict(instance)
             for dict_key, dic in self.data.items():
                 encoded_instance[dict_key] = dic.encode(instance[dict_key], allow_new=allow_new)
-            outputs.append(encoded_instance)
-        return outputs
+            return encoded_instance
 
     def decode(self, instances):
-        outputs = []
-        for instance in instances:
+        if type(instances) in [list, tuple]:
+            return [self.decode(instance) for instance in instances]
+        else:
+            instance = instances
             decoded_instance = dict(instance)
             for dict_key, dic in self.data.items():
                 decoded_instance[dict_key] = dic.decode(instance[dict_key])
-            outputs.append(decoded_instance)
-        return outputs
+            return decoded_instance
 
     def dump(self):
         return {key:value.dump() for key,value in self.data.items()}
