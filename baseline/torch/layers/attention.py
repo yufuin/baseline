@@ -66,8 +66,8 @@ class MultiHeadAttention(torch.nn.Module):
         self.query_dim = query_dim
         self.num_head = num_head
 
-        self.fc_value = torch.nn.Linear(self.input_dim, self.input_dim)
-        self.fc_attention = torch.nn.Linear(self.query_dim, self.num_head * self.input_dim, bias=False)
+        self.fc_kv = torch.nn.Linear(self.input_dim, 2*self.input_dim)
+        self.fc_query = torch.nn.Linear(self.query_dim, self.input_dim)
 
     def forward(self, inputs, queries, masks=None):
         """
@@ -79,9 +79,9 @@ class MultiHeadAttention(torch.nn.Module):
         query_rank = len(queries.shape)
         assert query_rank in [2,3]
 
-        v = self.fc_value(inputs).view(batch_size, 1, seq_len, self.num_head, self.input_dim//self.num_head) # [batch_size, 1, seq_len, num_head, head_dim]
-        q = self.fc_attention(queries).view(batch_size, -1, 1, self.num_head, self.input_dim) # [batch_size, num_query, 1, num_head, input_dim]
-        k = inputs.view(batch_size, 1, seq_len, 1, self.input_dim)
+        kv = self.fc_kv(inputs).view(batch_size, 1, seq_len, 2, self.num_head, self.input_dim//self.num_head)
+        k, v = kv.unbind(3) # 2 * [batch_size, 1, seq_len, num_head, head_dim]
+        q = self.fc_query(queries).view(batch_size, -1, 1, self.num_head, self.input_dim//self.num_head) # [batch_size, num_query, 1, num_head, head_dim]
         u = (q * k).sum(-1) # [batch_size, num_query, seq_len, num_head]
         exp_u = elu_clip(u).exp()
         if masks is not None:
