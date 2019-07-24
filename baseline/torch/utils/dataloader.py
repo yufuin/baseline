@@ -4,20 +4,22 @@ import torch.utils.data
 from baseline.utils import pad
 
 class Selecter:
-    def __init__(self, origin, name=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
-        self.origin = origin
-        self._name = name
+    def __init__(self, name, origin=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
+        self.name = name
+        self._origin = origin
         self.dtype = dtype
         self.device = device
         self.padding = padding
         self.padding_value = padding_value
         self.padding_mask = padding_mask
     @property
-    def name(self):
-        return self._name if self._name is not None else self.origin
+    def origin(self):
+        return self._origin if self._origin is not None else self.name
 
 class SelectiveDataset(torch.utils.data.Dataset):
     def __init__(self, instances, selecters, sort_key=None):
+        assert all(type(selecter) in [Selecter, dict] for selecter in selecters)
+        selecters = [selecter if type(selecter) is Selecter else Selecter(**selecter) for selecter in selecters]
         assert len(selecters) == len(set(s.name for s in selecters)), "the same name occurs multiple times."
 
         self.instances = list(instances)
@@ -73,7 +75,8 @@ selecters = [
     Selecter("id"),
     Selecter("foo", dtype=torch.long),
     Selecter("bar", dtype=torch.float, device=device, padding=True, padding_value=-7, padding_mask=True),
-    Selecter("bar", name="hoge"),
+    Selecter("hoge", origin="bar"),
+    {"name":"piyo", "origin":"foo", "dtype":torch.float},
 ]
 dataset = SelectiveDataset(instances, selecters, sort_key=lambda x:len(x["hoge"]))
 """
