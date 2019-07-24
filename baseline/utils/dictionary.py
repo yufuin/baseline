@@ -52,12 +52,13 @@ class BasicDictionary:
 
     def dump(self):
         return dict(self.dic)
-    def load(self, dic):
-        self.dic = dict(dic)
+    def load(self, dumped):
+        self.dic = dict(dumped)
         self.reverse_dic = {value:key for key,value in self.dic.items()}
 
         self._unk_symbol = self.reverse_dic[self.unk_symbol_id]
         self._finalized = False
+        return self
 
     def finalize(self):
         # this is only for self.add
@@ -75,4 +76,32 @@ class BILOUDictionary:
 class MultiDictionary:
     # d = MultiDictionary(words="basic", POSs="basic", "entities"="bilou")
     # train = d.encode(json.load(open("train.json")), allow_new=True)
-    pass
+    def __init__(self, **dictionaries):
+        self.data = dict(dictionaries)
+
+    def encode(self, instances, allow_new):
+        # instances: [{A:key_A_1, B:key_B_1,...}, {A:key_A_2, B:key_B_2,...}, ...]
+        outputs = []
+        for instance in instances:
+            encoded_instance = dict(instance)
+            for dict_key, dic in self.data.items():
+                encoded_instance[dict_key] = dic.encode(instance[dict_key], allow_new=allow_new)
+            outputs.append(encoded_instance)
+        return outputs
+
+    def decode(self, instances):
+        outputs = []
+        for instance in instances:
+            decoded_instance = dict(instance)
+            for dict_key, dic in self.data.items():
+                decoded_instance[dict_key] = dic.decode(instance[dict_key])
+            outputs.append(decoded_instance)
+        return outputs
+
+    def dump(self):
+        return {key:value.dump() for key,value in self.data.items()}
+    def load(self, dumped):
+        self.data = {key:BasicDictionary(None).load(value) for key,value in dumped.items()}
+        return self
+
+
