@@ -94,7 +94,7 @@ class MultiHeadAttention(torch.nn.Module):
             attention = attention.squeeze(1) # [batch_size, seq_len, num_head]
             attend = attend.squeeze(1) # [batch_size, input_dim]
 
-        return attend, attention
+        return attend
 
 
 
