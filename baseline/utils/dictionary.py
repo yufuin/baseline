@@ -74,7 +74,7 @@ class BILOUDictionary:
     pass
 
 class MultiDictionary:
-    # d = MultiDictionary(words="basic", POSs="basic", "entities"="bilou")
+    # d = MultiDictionary(words=BasicDictionary("WORD_UNK"), POSs=BasicDictionary("POS_UNK"))
     # train = d.encode(json.load(open("train.json")), allow_new=True)
     def __init__(self, **dictionaries):
         self.data = dict(dictionaries)
