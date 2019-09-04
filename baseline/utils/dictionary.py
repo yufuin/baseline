@@ -79,6 +79,13 @@ class MultiDictionary:
     def __init__(self, **dictionaries):
         self.data = dict(dictionaries)
 
+    def keys(self):
+        return self.data.keys()
+    def __len__(self):
+        return len(self.data)
+    def __getitem__(self, key):
+        return self.data[key]
+
     def encode(self, instances, allow_new):
         # instances: [{A:key_A_1, B:key_B_1,...}, {A:key_A_2, B:key_B_2,...}, ...]
         if type(instances) in [list, tuple]:
