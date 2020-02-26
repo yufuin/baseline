@@ -11,6 +11,7 @@ class MultiHeadReduction(torch.nn.Module):
 
         self.fc_value = torch.nn.Linear(self.input_dim, self.input_dim)
         self.fc_attention = torch.nn.Linear(self.input_dim, self.num_head, bias=False)
+        self._sqrt_input_dim = self.input_dim ** 0.5
 
     def forward(self, inputs, masks=None):
         """
@@ -21,7 +22,7 @@ class MultiHeadReduction(torch.nn.Module):
 
         values = self.fc_value(inputs).view(batch_size, seq_len, self.num_head, self.input_dim//self.num_head) # [batch_size, seq_len, num_head, head_dim]
         u = self.fc_attention(inputs) # [batch_size, seq_len, num_head]
-        exp_u = elu_clip(u).exp()
+        exp_u = elu_clip(u / self._sqrt_input_dim).exp()
         if masks is not None:
             exp_u = exp_u * masks.unsqueeze(-1)
         attention = exp_u / exp_u.sum(1, keepdim=True) # [batch_size, seq_len, num_head]
@@ -37,6 +38,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.num_head = num_head
 
         self.fc = torch.nn.Linear(self.input_dim, 3*self.input_dim)
+        self._sqrt_input_dim = self.input_dim ** 0.5
 
     def forward(self, inputs, masks=None):
         """
@@ -48,7 +50,7 @@ class MultiHeadSelfAttention(torch.nn.Module):
         kqv = self.fc(inputs).view(batch_size, seq_len, 3, self.num_head, self.input_dim//self.num_head) # [batch_size, seq_len, 3, num_head, head_dim]
         keys, queries, values = kqv.unbind(2) # 3 * [batch_size, seq_len, num_head, head_dim]
         u = (queries.unsqueeze(2) * keys.unsqueeze(1)).sum(-1) # [batch_size, query_seq_len, key_seq_len, num_head]
-        exp_u = elu_clip(u).exp()
+        exp_u = elu_clip(u / self._sqrt_input_dim).exp()
         if masks is not None:
             exp_u = exp_u * masks.unsqueeze(1).unsqueeze(-1)
         attention = exp_u / exp_u.sum(2, keepdim=True) # [batch_size, query_seq_len, key_seq_len, num_head]
@@ -68,6 +70,7 @@ class MultiHeadAttention(torch.nn.Module):
 
         self.fc_kv = torch.nn.Linear(self.input_dim, 2*self.input_dim)
         self.fc_query = torch.nn.Linear(self.query_dim, self.input_dim)
+        self._sqrt_input_dim = self.input_dim ** 0.5
 
     def forward(self, inputs, queries, masks=None):
         """
@@ -83,7 +86,7 @@ class MultiHeadAttention(torch.nn.Module):
         k, v = kv.unbind(3) # 2 * [batch_size, 1, seq_len, num_head, head_dim]
         q = self.fc_query(queries).view(batch_size, -1, 1, self.num_head, self.input_dim//self.num_head) # [batch_size, num_query, 1, num_head, head_dim]
         u = (q * k).sum(-1) # [batch_size, num_query, seq_len, num_head]
-        exp_u = elu_clip(u).exp()
+        exp_u = elu_clip(u / self._sqrt_input_dim).exp()
         if masks is not None:
             exp_u = exp_u * masks.view(batch_size, 1, seq_len, 1)
         attention = exp_u / exp_u.sum(2, keepdim=True) # [batch_size, num_query, seq_len, num_head]
