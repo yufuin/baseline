@@ -37,7 +37,7 @@ def main():
         json.dump(test, f)
     print("ok.", flush=True)
 
-    print("successfully completed the construction of 'train.json' and 'test.json'.")
+    print("succeeded in construction of 'train.json' and 'test.json'.")
 
 def download():
     g = github.Github()
