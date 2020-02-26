@@ -4,7 +4,7 @@ del functions
 from .averagemanager import AverageManager
 del averagemanager
 
-from .dataloader import SelectiveDataset, Selecter
+from .dataloader import SelectiveDataset, Selector
 del dataloader
 
 from .transformers_utils import get_transformers_output_dim

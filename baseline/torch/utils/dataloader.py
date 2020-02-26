@@ -3,10 +3,12 @@ import torch.utils.data
 
 from baseline.utils import pad
 
-class Selecter:
-    def __init__(self, name, origin=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
+class Selector:
+    def __init__(self, name, origin=None, mapping=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
+        assert not ((origin is not None) and (mapping is not None)), "cannot set both origin and mapping"
         self.name = name
         self._origin = origin
+        self.mapping = mapping
         self.dtype = dtype
         self.device = device
         self.padding = padding
@@ -14,21 +16,32 @@ class Selecter:
         self.padding_mask = padding_mask
     @property
     def origin(self):
-        return self._origin if self._origin is not None else self.name
+        if self._origin is not None:
+            return self._origin
+        elif self.mapping is not None:
+            return None
+        else:
+            return self.name
+
+    def select(self, instance):
+        if self.mapping is not None:
+            return self.mapping(instance)
+        else:
+            return instance[self.origin]
 
 class SelectiveDataset(torch.utils.data.Dataset):
-    def __init__(self, instances, selecters, sort_key=None):
-        assert all(type(selecter) in [Selecter, dict] for selecter in selecters)
-        selecters = [selecter if type(selecter) is Selecter else Selecter(**selecter) for selecter in selecters]
-        assert len(selecters) == len(set(s.name for s in selecters)), "the same name occurs multiple times."
+    def __init__(self, instances, selectors, sort_key=None):
+        assert all(type(selector) in [Selector, dict] for selector in selectors)
+        selectors = [selector if type(selector) is Selector else Selector(**selector) for selector in selectors]
+        assert len(selectors) == len(set(s.name for s in selectors)), "cannot use a same name multiple times."
 
         self.instances = list(instances)
-        self.selecters = list(selecters)
+        self.selectors = list(selectors)
         self.sort_key = sort_key
 
     def __getitem__(self, idx):
         instance = self.instances[idx]
-        return {selecter.name:instance[selecter.origin] for selecter in self.selecters}
+        return {selector.name:selector.select(instance) for selector in self.selectors}
 
     def __len__(self):
         return len(self.instances)
@@ -38,23 +51,23 @@ class SelectiveDataset(torch.utils.data.Dataset):
             instances = sorted(instances, key=self.sort_key, reverse=True)
 
         outputs = dict()
-        for selecter in self.selecters:
-            key = selecter.name
+        for selector in self.selectors:
+            key = selector.name
             values = [instance[key] for instance in instances]
 
-            if selecter.padding:
-                values, masks = pad(values, selecter.padding_value)
+            if selector.padding:
+                values, masks = pad(values, selector.padding_value)
 
-                if selecter.padding_mask:
+                if selector.padding_mask:
                     masks = torch.FloatTensor(masks)
-                    if selecter.device is not None:
-                        masks = masks.to(selecter.device)
+                    if selector.device is not None:
+                        masks = masks.to(selector.device)
                     outputs[key + "_mask"] = masks
 
-            if selecter.dtype is not None:
-                values = torch.tensor(values, dtype=selecter.dtype)
-                if selecter.device is not None:
-                    values = values.to(selecter.device)
+            if selector.dtype is not None:
+                values = torch.tensor(values, dtype=selector.dtype)
+                if selector.device is not None:
+                    values = values.to(selector.device)
 
             outputs[key] = values
 
@@ -71,12 +84,13 @@ instances = [i1,i2,i3,i1,i1,i1,i1]
 
 device = torch.device("cpu")
 #device = torch.device("cuda:0")
-selecters = [
-    Selecter("id"),
-    Selecter("foo", dtype=torch.long),
-    Selecter("bar", dtype=torch.float, device=device, padding=True, padding_value=-7, padding_mask=True),
-    Selecter("hoge", origin="bar"),
-    {"name":"piyo", "origin":"foo", "dtype":torch.float},
+selectors = [
+    Selector("id"),
+    Selector("foo", dtype=torch.long),
+    Selector("bar", dtype=torch.float, device=device, padding=True, padding_value=-7, padding_mask=True),
+    Selector("hoge", origin="bar"),
+    {"name":"fuga", "origin":"foo", "dtype":torch.float},
+    {"name":"piyo", "mapping":lambda x:x["foo"]**2, "dtype":torch.long},
 ]
-dataset = SelectiveDataset(instances, selecters, sort_key=lambda x:len(x["hoge"]))
+dataset = SelectiveDataset(instances, selectors, sort_key=lambda x:len(x["hoge"]))
 """
