@@ -13,4 +13,6 @@ del decoding
 from baseline.utils.transformers_utils import SubwordOffsetTokenizer
 del transformers_utils
 
+from baseline.utils.metrics import compute_precision_recall_f
+del metrics
 
