@@ -1,4 +1,4 @@
-from baseline.torch.utils.functions import elu_clip
+from baseline.torch.utils.functions import elu_clip, flatten
 del functions
 
 from baseline.torch.utils.averagemanager import AverageManager
