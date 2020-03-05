@@ -48,7 +48,7 @@ class BasicDictionary:
         if type(value) in [list, tuple]:
             return [self.decode(v) for v in value]
         else:
-            return self.reverse_dic[value]
+            return self.reverse_dic.get(value, self.unk_symbol)
 
     def dump(self):
         return dict(self.dic)
