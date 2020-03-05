@@ -10,4 +10,7 @@ del closed_interval
 from baseline.utils.decoding import bilou_span_decode
 del decoding
 
+from baseline.utils.transformers_utils import SubwordOffsetTokenizer
+del transformers_utils
+
 
