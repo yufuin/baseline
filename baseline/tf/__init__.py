@@ -1,3 +1,2 @@
-from . import utils
-
-from . import layers
+from baseline.tf import utils
+from baseline.tf import layers

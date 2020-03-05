@@ -1,5 +1,3 @@
-from .attention import MultiHeadReduction
-from .attention import MultiHeadSelfAttention
-from .attention import MultiHeadAttention
+from baseline.torch.layers.attention import MultiHeadReduction, MultiHeadSelfAttention, MultiHeadAttention
 del attention
 

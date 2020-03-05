@@ -1,6 +1,5 @@
-from .attention import MultiHeadReduction
-from .attention import MultiHeadSelfAttention
+from baseline.tf.layers.attention import MultiHeadReduction, MultiHeadSelfAttention
 del attention
 
-from .treelstm import BottomUpChildSumTreeLSTM
+from baseline.tf.layers.treelstm import BottomUpChildSumTreeLSTM
 del treelstm
