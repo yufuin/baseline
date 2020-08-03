@@ -16,3 +16,6 @@ del transformers_utils
 from baseline.utils.metrics import compute_precision_recall_f
 del metrics
 
+from baseline.utils.text_utils import splitlines_with_positions
+del text_utils
+
