@@ -15,6 +15,8 @@ class SplitLinesWithPositionsTestCase(unittest.TestCase):
         ret = T.splitlines_with_positions(text)
         self.assertListEqual([s[0] for s in ret], text.splitlines())
         self.assertEqual("\n".join(s[0] for s in ret), text)
+        self.assertListEqual([r[0] for r in ret], [text[r[1]:r[2]] for r in ret])
+        self.assertListEqual(text.splitlines(), [text[r[1]:r[2]] for r in ret])
 
         # check when text has one or two newline charcter(s) at the EOS
         # one "\n"
@@ -33,6 +35,8 @@ class SplitLinesWithPositionsTestCase(unittest.TestCase):
         ret = T.splitlines_with_positions(text, keepends=True)
         self.assertListEqual([s[0] for s in ret], text.splitlines(keepends=True))
         self.assertEqual(text, "".join(s[0] for s in ret))
+        self.assertListEqual([r[0] for r in ret], [text[r[1]:r[2]] for r in ret])
+        self.assertListEqual(text.splitlines(keepends=True), [text[r[1]:r[2]] for r in ret])
 
         # consistency of keepends
         text = "fizz\nbuzz\nbuzz\nfizz\nfizz\nfizzfizz\n\nfizz\nbuzz\n\n"
@@ -47,6 +51,8 @@ class SplitLinesWithPositionsTestCase(unittest.TestCase):
         ret = T.splitlines_with_positions(text, keepends=True)
         self.assertListEqual([s[0] for s in ret], text.splitlines(keepends=True))
         self.assertEqual(text, "".join(s[0] for s in ret))
+        self.assertListEqual([r[0] for r in ret], [text[r[1]:r[2]] for r in ret])
+        self.assertListEqual(text.splitlines(keepends=True), [text[r[1]:r[2]] for r in ret])
 
         text = "fizz\nbuzz\nbuzz\r\nfizz\nfizz\nfizzfizz\n\r\nfizz\nbuzz\n\n"
         ret_notkeep = T.splitlines_with_positions(text)
