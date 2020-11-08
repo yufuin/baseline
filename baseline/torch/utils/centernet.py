@@ -64,7 +64,7 @@ class CtdetCocoHourglassNet(torch.nn.Module):
         return self
 
     def reset_output_heatmap_layer(self, num_classes=80, std=0.002):
-        # default heat-map heads (self.module.hm) are nn.ModuleList([nn.Sequential(convolution(3, cnv_dim, curr_dim, with_bn=False), nn.Conv2d(curr_dim, num_classes, (1, 1))), ...]) (len(hm)==#stacking-hourglass)
+        # default heat-map heads (self.module.hm) are nn.ModuleList([nn.Sequential(convolution(3, cnv_dim, curr_dim, with_bn=False), nn.Conv2d(curr_dim, num_classes, (1, 1))), ...]) here len(hm)==#stacking-hourglass
         heat_map_heads = self.module.hm
         curr_dims = [head[0].conv.out_channels for head in heat_map_heads]
         assert len(set(curr_dims)) == 1
@@ -72,10 +72,35 @@ class CtdetCocoHourglassNet(torch.nn.Module):
         new_second_convolutions = [torch.nn.Conv2d(curr_dim, num_classes, (1,1)) for curr_dim in curr_dims]
         for conv in new_second_convolutions:
             torch.nn.init.normal_(conv.weight, mean=0.0, std=std)
-        self.olds = [head[1] for head in heat_map_heads]
+            conv.bias.data.fill_(-2.19)
+        if not hasattr(self, "olds"):
+            self.olds = dict()
+        self.olds["hm"] = [head[1] for head in heat_map_heads]
 
         self.module.hm = torch.nn.ModuleList([torch.nn.Sequential(first, second) for first, second in zip(first_convolutions, new_second_convolutions)])
         return self
+
+    def reset_output_layer(self, key, output_dim, std=0.002):
+        assert key != "hm"
+        # default non-hm heads (self.module.hm) are nn.ModuleList([nn.Sequential(convolution(3, cnv_dim, curr_dim, with_bn=False), nn.Conv2d(curr_dim, out_dim, (1, 1))), ...]) here len(heads)==#stacking-hourglass
+        heads = getattr(self.module, key)
+        curr_dims = [head[0].conv.out_channels for head in heads]
+        assert len(set(curr_dims)) == 1
+        first_convolutions = [head[0] for head in heads]
+        new_second_convolutions = [torch.nn.Conv2d(curr_dim, output_dim, (1,1)) for curr_dim in curr_dims]
+        for conv in new_second_convolutions:
+            torch.nn.init.normal_(conv.weight, mean=0.0, std=std)
+        if not hasattr(self, "olds"):
+            self.olds = dict()
+        self.olds[key] = [head[1] for head in heads]
+
+        new_heads = torch.nn.ModuleList([torch.nn.Sequential(first, second) for first, second in zip(first_convolutions, new_second_convolutions)])
+        setattr(self.module, key, new_heads)
+        return self
+
+    def remove_head(self, key):
+        del self.module.heads[key]
+        delattr(self.module, key)
 
 
 # https://github.com/xingyizhou/CenterNet/blob/master/src/lib/models/networks/large_hourglass.py
