@@ -73,8 +73,8 @@ class SelectiveDataset(torch.utils.data.Dataset):
 
         return outputs
 
-    def dataloader(self, batch_size, shuffle):
-        return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn)
+    def dataloader(self, batch_size, shuffle, *args, **kwargs):
+        return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn, *args, **kwargs)
 
 """
 i1 = {"id":"instance1", "foo":32, "bar":[[1,2]]}
