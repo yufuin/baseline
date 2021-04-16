@@ -102,6 +102,12 @@ class CtdetCocoHourglassNet(torch.nn.Module):
         del self.module.heads[key]
         delattr(self.module, key)
 
+    def add_output_layer(self, key, layer, output_dim_for_reference=None):
+        assert key not in self.module.heads
+        self.module.heads[key] = output_dim_for_reference
+        setattr(self.module, key, layer)
+
+
 
 # https://github.com/xingyizhou/CenterNet/blob/master/src/lib/models/networks/large_hourglass.py
 class _centernet_convolution(torch.nn.Module):
