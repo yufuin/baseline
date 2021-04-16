@@ -50,7 +50,17 @@ class DataclassArgumentParser(_A.ArgumentParser, _T.Generic[DataclassType]):
                 argkwparams["help"] = field.metadata["help"]
 
             if field.type is bool:
-                raise NotImplementedError()
+                # only default value is acceptable as well as required.
+                assert not doesnt_have_default, field
+                assert type(default_value) is bool
+                assert "args" not in field.metadata, field
+                assert "choices" not in field.metadata, field
+                assert "required" not in field.metadata, field
+
+                self.add_argument("--"+field.name, dest=field.name, action="store_true")
+                self.add_argument("--no_"+field.name, dest=field.name, action="store_false")
+                self.set_defaults(**{field.name:default_value})
+
             else:
                 argkwparams["type"] = field.type
 
