@@ -22,3 +22,5 @@ del text_utils
 from baseline.utils.progress_bar import closing_tqdm, closing_tqdm_iter
 del progress_bar
 
+import baseline.utils.argparse
+

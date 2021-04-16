@@ -71,7 +71,6 @@ class DataclassArgumentParser(_A.ArgumentParser, _T.Generic[DataclassType]):
                     if not doesnt_have_default:
                         argkwparams["default"] = default_value
 
-                print(argparams, argkwparams)
                 self.add_argument(*argparams, **argkwparams)
 
     def parse_args(self, *args, **kwargs) -> DataclassType:
