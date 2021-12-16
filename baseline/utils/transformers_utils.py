@@ -1,4 +1,7 @@
 class SubwordOffsetTokenizer:
+    """
+    NOTE: This is no longer needed since official huggingface/transformers provides an option to have the offsets (see Tokenizer.return_offsets_mapping).
+    """
     def __init__(self, tokenizer):
         """
         tokenizer : transformers.AutoTokenizer (tested on transformers==2.5.0)
