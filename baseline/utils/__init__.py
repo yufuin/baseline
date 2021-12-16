@@ -22,7 +22,8 @@ del text_utils
 from baseline.utils.progress_bar import closing_tqdm, closing_tqdm_iter
 del progress_bar
 
-import baseline.utils.argparse
+from baseline.utils.argparse import DataclassArgumentParser
+del argparse
 
 from baseline.utils.chunk import chunking
 del chunk
