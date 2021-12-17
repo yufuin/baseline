@@ -92,7 +92,7 @@ class SelectiveDataset(torch.utils.data.Dataset):
     def dataloader(self, batch_size, shuffle, *args, **kwargs):
         return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn, *args, **kwargs)
 
-# """
+"""
 i1 = {"id":"instance1", "foo":32, "bar":[[1,2]]}
 i2 = {"id":"instance2", "foo":50, "bar":[[10],[32],[5]]}
 i3 = {"id":"instance3", "foo":43, "bar":[], "baz":-1}
@@ -109,4 +109,4 @@ selectors = [
     {"name":"piyo", "mapping":lambda x:x["foo"]**2, "dtype":torch.long},
 ]
 dataset = SelectiveDataset(instances, selectors, sort_key=lambda x:len(x["hoge"]))
-# """
+"""
