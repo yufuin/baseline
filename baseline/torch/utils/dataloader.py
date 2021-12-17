@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.utils.data
 
@@ -30,7 +31,7 @@ class Selector:
             return instance[self.origin]
 
 class SelectiveDataset(torch.utils.data.Dataset):
-    def __init__(self, instances, selectors, sort_key=None):
+    def __init__(self, instances, selectors, sort_key=None, ordered=False, rng_state=12345):
         assert all(type(selector) in [Selector, dict] for selector in selectors)
         selectors = [selector if type(selector) is Selector else Selector(**selector) for selector in selectors]
         assert len(selectors) == len(set(s.name for s in selectors)), "cannot use a same name multiple times."
@@ -39,8 +40,23 @@ class SelectiveDataset(torch.utils.data.Dataset):
         self.selectors = list(selectors)
         self.sort_key = sort_key
 
+        self.rng = np.random.RandomState(rng_state)
+        self.ordered = ordered
+        self.order = list(range(len(self.instances)))
+        self.num_shuffled = 0
+        if self.ordered:
+            self.shuffle_order()
+
+    def shuffle_order(self):
+        order = list(range(len(self.instances)))
+        self.ordered = True
+        self.rng.shuffle(order)
+        self.order = order
+        self.num_shuffled += 1
+        return self
+
     def __getitem__(self, idx):
-        instance = self.instances[idx]
+        instance = self.instances[self.order[idx]]
         return {selector.name:selector.select(instance) for selector in self.selectors}
 
     def __len__(self):
@@ -76,7 +92,7 @@ class SelectiveDataset(torch.utils.data.Dataset):
     def dataloader(self, batch_size, shuffle, *args, **kwargs):
         return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn, *args, **kwargs)
 
-"""
+# """
 i1 = {"id":"instance1", "foo":32, "bar":[[1,2]]}
 i2 = {"id":"instance2", "foo":50, "bar":[[10],[32],[5]]}
 i3 = {"id":"instance3", "foo":43, "bar":[], "baz":-1}
@@ -93,4 +109,4 @@ selectors = [
     {"name":"piyo", "mapping":lambda x:x["foo"]**2, "dtype":torch.long},
 ]
 dataset = SelectiveDataset(instances, selectors, sort_key=lambda x:len(x["hoge"]))
-"""
+# """
