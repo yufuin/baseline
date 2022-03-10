@@ -116,10 +116,9 @@ class NERInstance:
 
         out = [int(NERSpanTag.O) for _ in range(len(self.input_ids))]
         for span in target_spans:
-            if strict:
-                assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
-
             if scheme == NERTaggingScheme.BILOU:
+                if strict:
+                    assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
                 class_offset = 0 if no_class else span.l * 4 # 4 <- len({B, I, L, U})
                 if span.s + 1 == span.e:
                     out[span.s] = NERSpanTag.U + class_offset
@@ -129,6 +128,8 @@ class NERInstance:
                     for i in range(span.s+1, span.e-1):
                         out[i] = NERSpanTag.I + class_offset
             elif scheme == NERTaggingScheme.BIO:
+                if strict:
+                    assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
                 class_offset = 0 if no_class else span.l * 2 # 2 <- len({B, I})
                 out[span.s] = NERSpanTag.B + class_offset
                 for i in range(span.s+1, span.e):
@@ -141,5 +142,31 @@ class NERInstance:
             else:
                 raise ValueError(scheme)
         return out
+
+# %%
+if __name__ == "__main__":
+    tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased")
+    instance = NERInstance.build(
+        text = "This is biomedical example.",
+        spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,26, 0, "third-span:class_0")],
+        tokenizer = tok
+    )
+    print("instance:", instance)
+    print()
+
+    # %%
+    print("multi class sequence tag:")
+    print("BILOU ->", instance.sequence_tag(scheme=NERTaggingScheme.BILOU, no_class=False))
+    print("BIO ->", instance.sequence_tag(scheme=NERTaggingScheme.BIO, no_class=False))
+    print("token-level ->", instance.sequence_tag(scheme=NERTaggingScheme.Independent, no_class=False))
+    print()
+
+    # %%
+    print("single class sequence tag:")
+    print("BILOU ->", instance.sequence_tag(scheme=NERTaggingScheme.BILOU, no_class=True))
+    print("BILOU only for class_0 ->", instance.sequence_tag(scheme=NERTaggingScheme.BILOU, no_class=True, target_label=0))
+    print("BIO ->", instance.sequence_tag(scheme=NERTaggingScheme.BIO, no_class=True))
+    print("token-level ->", instance.sequence_tag(scheme=NERTaggingScheme.Independent, no_class=True))
+    print()
 
 # %%
