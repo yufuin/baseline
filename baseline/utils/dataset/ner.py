@@ -89,7 +89,7 @@ class NERInstance:
 
         token_spans = list()
         offset_mapping_end_with_sentinel = [0] + list(self.offset_mapping_end)
-        offset_mapping_start_with_sentinel = list(self.offset_mapping_start) + [len(self.text)]
+        offset_mapping_start_with_sentinel = list(self.offset_mapping_start) + [self.offset_mapping_end[-1]]
         for span in self.spans:
             if fuzzy:
                 for st in range(len(self.input_ids)):
@@ -101,8 +101,8 @@ class NERInstance:
                 for et_minus_one in range(len(self.input_ids)):
                     if offset_mapping_start_with_sentinel[et_minus_one] < span.e <= offset_mapping_start_with_sentinel[et_minus_one+1]:
                         break
-                else:
-                    continue
+                # else:
+                #     continue
 
                 token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
 
