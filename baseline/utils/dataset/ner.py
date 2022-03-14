@@ -50,6 +50,7 @@ class NERSpanTag(int, _enum.Enum):
 class NERInstance:
     text: str
     spans: _List[NERSpan]
+    id: _Any = None
 
     input_ids: _Optional[_List[int]] = None
     offset_mapping_start: _Optional[_List[int]] = None
@@ -57,9 +58,9 @@ class NERInstance:
     token_spans: _Optional[_List[NERSpan]] = None
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy=None):
+    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy=None):
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
-        out = cls(text=text, spans=spans)
+        out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
             if fuzzy is not None:
