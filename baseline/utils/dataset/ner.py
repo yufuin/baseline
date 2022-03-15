@@ -58,13 +58,15 @@ class NERInstance:
     token_spans: _Optional[_List[NERSpan]] = None
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy=None):
+    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy:_Optional[bool]=None, tokenizer_kwargs:_Optional[dict]=None):
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
             if fuzzy is not None:
                 encode_func_args["fuzzy"] = fuzzy
+            if tokenizer_kwargs is not None:
+                encode_func_args["tokenizer_kwargs"] = tokenizer_kwargs
             out.encode_(tokenizer, **encode_func_args)
         if check_some:
             out.check_some()
@@ -78,8 +80,11 @@ class NERInstance:
                 assert span.s < span.e, span
         return self
 
-    def encode_(self, tokenizer, fuzzy=True):
-        enc = tokenizer(self.text, return_offsets_mapping=True, add_special_tokens=False)
+    def encode_(self, tokenizer:_transformers.PreTrainedTokenizer, fuzzy:bool=True, tokenizer_kwargs:_Optional[dict]=None):
+        tokenizer_kwargs = dict(tokenizer_kwargs)
+        if "add_special_tokens" not in tokenizer_kwargs:
+            tokenizer_kwargs["add_special_tokens"] = False
+        enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_kwargs)
         self.input_ids = enc["input_ids"]
         self.offset_mapping_start = [se[0] for se in enc["offset_mapping"]]
         self.offset_mapping_end = [se[1] for se in enc["offset_mapping"]]
