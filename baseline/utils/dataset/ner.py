@@ -12,6 +12,9 @@ class NERSpan:
     e: int
     l: int
     id: _Any = None
+    @classmethod
+    def load_from_dict(cls, dumped):
+        return cls(**dumped)
     @property
     def start(self):
         return self.s
@@ -56,6 +59,14 @@ class NERInstance:
     offset_mapping_start: _Optional[_List[int]] = None
     offset_mapping_end: _Optional[_List[int]] = None
     token_spans: _Optional[_List[NERSpan]] = None
+
+    @classmethod
+    def load_from_dict(cls, dumped):
+        dumped = dict(dumped)
+        dumped["spans"] = [NERSpan.load_from_dict(dic_span) for dic_span in dumped["spans"]]
+        if isinstance(dumped["token_spans"], list):
+            dumped["token_spans"] = [NERSpan.load_from_dict(dic_span) for dic_span in dumped["token_spans"]]
+        return cls(**dumped)
 
     @classmethod
     def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy:_Optional[bool]=None, tokenizer_kwargs:_Optional[dict]=None):
