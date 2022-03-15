@@ -416,12 +416,16 @@ def sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]],
     else:
         raise ValueError(label_scheme)
 
-def viterbi_decode(logits_sequence:_Union[_List[_List[int]],_List[_List[_List[int]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel) -> _Union[_List[int],_List[_List[int]]]:
+def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, scalar_logit_for_independent:bool=False) -> _Union[_List[int],_List[_List[int]]]:
     """
     input: logits_sequence
     - 2D or 3D float list. shape==[seq_len, [num_class,] num_label].
 
     output: sequence_label
+
+    if (scalar_logit_for_independent == True) and (tagging_scheme == Independent) and (label_scheme in [MultiLabel, SpanOnly]),
+    the expected shape of logits_sequence is [seq_len, [num_class,]] and each value logits_sequence[i[,j]] will be treated as a logit of the positive probability.
+    otherwise, the shape should be [seq_len, [num_class,] 2] (2:(logit_negative, logit_positive)).
 
 
     if label_scheme==SingleLabel:
@@ -467,9 +471,11 @@ def viterbi_decode(logits_sequence:_Union[_List[_List[int]],_List[_List[_List[in
             logits_time-step_t := [logit_Negative, logit_Positive]
     """
 
-    logits_sequence = _numpy.array(logits_sequence, dtype=_numpy.float32)
+    logits_sequence:_numpy.ndarray = _numpy.array(logits_sequence, dtype=_numpy.float32)
 
     if label_scheme == NERLabelScheme.SingleLabel:
+        assert len(logits_sequence.shape) == 2, logits_sequence.shape
+
         if tagging_scheme == NERTaggingScheme.BILOU:
             num_class = (logits_sequence.shape[1] - 1) // 4
         elif tagging_scheme == NERTaggingScheme.BIO:
@@ -479,14 +485,24 @@ def viterbi_decode(logits_sequence:_Union[_List[_List[int]],_List[_List[_List[in
         else:
             raise ValueError(tagging_scheme)
     elif label_scheme == NERLabelScheme.MultiLabel:
+        if (tagging_scheme == NERTaggingScheme.Independent) and scalar_logit_for_independent:
+            assert len(logits_sequence.shape) == 2, logits_sequence.shape
+        else:
+            assert len(logits_sequence.shape) == 3, logits_sequence.shape
+
         decoded = list()
         for class_i in range(logits_sequence.shape[1]):
             logit_sequence_class_i = logits_sequence[:,class_i]
-            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SpanOnly)
+            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SpanOnly, scalar_logit_for_independent=scalar_logit_for_independent)
             decoded.append(decoded_class_i)
         decoded = list(zip(*decoded)) # [num_class, seq_len] -> [seq_len, num_class]
         return decoded
     elif label_scheme == NERLabelScheme.SpanOnly:
+        if (tagging_scheme == NERTaggingScheme.Independent) and scalar_logit_for_independent:
+            assert len(logits_sequence.shape) == 1, logits_sequence.shape
+        else:
+            assert len(logits_sequence.shape) == 2, logits_sequence.shape
+
         num_class = 1
     else:
         raise ValueError(label_scheme)
@@ -520,7 +536,10 @@ def viterbi_decode(logits_sequence:_Union[_List[_List[int]],_List[_List[_List[in
             transition_paths[num_label_wo_O*c+2] = [num_label_wo_O*c+1, num_label_wo_O*c+2] # from B or I
 
     elif tagging_scheme == NERTaggingScheme.Independent:
-        return logits_sequence.argmax(-1).tolist()
+        if label_scheme == NERLabelScheme.SpanOnly and scalar_logit_for_independent:
+            return (logits_sequence > 0).astype(_numpy.int32).tolist()
+        else:
+            return logits_sequence.argmax(-1).tolist()
 
     else:
         raise ValueError(tagging_scheme)
@@ -611,5 +630,23 @@ if __name__ == "__main__":
     print(sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly))
     print(sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly))
     print(sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly))
+
+    # %%
+    positive_logits = _numpy.array([
+        [-0.12580859661102295, 0.13866497576236725, -0.004946088418364525, -0.011039067059755325, 0.04118518531322479, 0.209847092628479, -0.240921288728714, -0.026520986109972, -0.07723920792341232, 0.006692873779684305, -0.3117348253726959],
+        [1.0395761728286743, -1.139390230178833, -1.67435884475708, -0.682197630405426, -0.005922921001911163, 0.4142416715621948, -0.8619325160980225, -0.527134120464325, 0.5418972969055176, 0.4669799208641052, 0.9111515283584595],
+        [0.9126020669937134, -0.8182739019393921, -1.1124005317687988, -0.31609854102134705, -0.5066011548042297, -0.5548560619354248, -0.5321623682975769, -0.0609733872115612, 1.052380084991455, 0.69451904296875, 0.6331266760826111],
+        [1.1847517490386963, -0.2960182726383209, 0.17322547733783722, -0.9496498107910156, -0.7404254078865051, -0.41485345363616943, 0.5226980447769165, 0.3296244442462921, 0.5696917772293091, 0.14669597148895264, -0.407884806394577],
+        [-0.048488348722457886, -0.028185393661260605, -0.45448189973831177, -0.571286141872406, 0.3106667101383209, -0.649383544921875, 0.14023838937282562, 0.0034116366878151894, 0.7123101353645325, -0.35180336236953735, -0.7513846755027771],
+        [1.1311267614364624, -1.0243971347808838, -0.9930524230003357, -0.3362758159637451, -0.5516917109489441, 0.08782649040222168, -0.3966140151023865, 0.19338271021842957, 0.9406710863113403, -0.07828716933727264, 0.5972633361816406],
+        [0.9672456979751587, -1.850893497467041, -1.0942933559417725, -0.9000891447067261, -0.6152650713920593, 0.15397143363952637, -0.4109809100627899, -0.003905489109456539, 2.078101634979248, -0.46680164337158203, 0.4010751247406006]
+    ]) # [seq_len=7, num_class=11]
+    logits = _numpy.stack([-positive_logits, positive_logits], axis=-1) # [7, 11, 2(negative/positive)]
+    probs = 1 / (1+_numpy.exp(-logits))
+
+    decoded1 = viterbi_decode(logits, tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel)
+    decoded2 = viterbi_decode(positive_logits, tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, scalar_logit_for_independent=True)
+    decoded1 == decoded2, _numpy.array(decoded1).shape, decoded1
+
 
 # %%
