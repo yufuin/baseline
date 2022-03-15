@@ -130,7 +130,7 @@ class NERInstance:
         self.token_spans = token_spans
         return self
 
-    def sequence_tag(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
+    def sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
         """
         output := [label_0, label_1, label_2, ...]
 
@@ -267,25 +267,25 @@ if __name__ == "__main__":
     print()
 
     # %%
-    print("multi class single labelling sequence tag:")
-    print("BILOU ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SingleLabel))
-    print("BIO ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SingleLabel))
-    print("token-level ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SingleLabel))
+    print("multi class single labelling sequence label:")
+    print("BILOU ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SingleLabel))
+    print("BIO ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SingleLabel))
+    print("token-level ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SingleLabel))
     print()
 
     # %%
-    print("multi labelling sequence tag:")
-    print("BILOU ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
-    print("BIO ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
-    print("token-level ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
+    print("multi labelling sequence label:")
+    print("BILOU ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
+    print("BIO ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
+    print("token-level ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
     print()
 
     # %%
-    print("span-only (no-class) sequence tag:")
-    print("BILOU ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly))
-    print("BILOU only for class_0 ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly, only_label=0))
-    print("BIO ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly))
-    print("token-level ->", instance.sequence_tag(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly))
+    print("span-only (no-class) sequence label:")
+    print("BILOU ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly))
+    print("BILOU only for class_0 ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly, only_label=0))
+    print("BIO ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly))
+    print("token-level ->", instance.sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly))
     print()
 
 # %%
