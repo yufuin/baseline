@@ -8,6 +8,7 @@ _formatter = _logging.Formatter('%(name)s - %(levelname)s:%(message)s')
 _ch.setFormatter(_formatter)
 _logger.addHandler(_ch)
 
+import collections as _collections
 import dataclasses as _D
 import enum as _enum
 from typing import List as _List, Optional as _Optional, Tuple as _Tuple, Union as _Union, Any as _Any
@@ -601,6 +602,32 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
     sequence_label = list(reversed(reverse_trajectory))
     return sequence_label
 
+def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
+    max_end = max([span.e for span in spans])
+    zero_table = [0 for _ in range(max_end+1)]
+    label_to_table = _collections.defaultdict(lambda: list(zero_table))
+    for span in spans:
+        for i in range(span.s, span.e):
+            label_to_table[span.l][i] = 1
+
+    outs = list()
+    for label, table in label_to_table.items():
+        t = 0
+        while t < max_end:
+            if table[t] == 1:
+                start = t
+                while (t < max_end) and (table[t] == 1):
+                    t += 1
+                end = t
+                outs.append(NERSpan(s=start,e=end,l=label))
+                continue
+            else:
+                t += 1
+                continue
+
+    return outs
+
+
 # %%
 if __name__ == "__main__":
     tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased")
@@ -667,5 +694,23 @@ if __name__ == "__main__":
     decoded2 = viterbi_decode(positive_logits, tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, scalar_logit_for_independent=True)
     decoded1 == decoded2, _numpy.array(decoded1).shape, decoded1
 
+    # %%
+    independent_spans = [
+        NERSpan(s=3, e=4, l=99, id=None),
+        NERSpan(s=85, e=86, l=100, id=None),
+        NERSpan(s=86, e=87, l=100, id=None),
+        NERSpan(s=87, e=88, l=100, id=None),
+        NERSpan(s=88, e=89, l=100, id=None),
+        NERSpan(s=89, e=90, l=100, id=None),
+        NERSpan(s=10, e=11, l=101, id=None),
+        NERSpan(s=11, e=12, l=101, id=None),
+        NERSpan(s=12, e=13, l=101, id=None),
+        NERSpan(s=13, e=14, l=101, id=None),
+        NERSpan(s=14, e=15, l=101, id=None),
+        NERSpan(s=18, e=19, l=101, id=None),
+        NERSpan(s=19, e=20, l=101, id=None),
+    ]
+    merged_spans = merge_spans(independent_spans)
+    merged_spans
 
 # %%
