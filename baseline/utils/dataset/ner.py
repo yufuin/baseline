@@ -130,7 +130,46 @@ class NERInstance:
         self.token_spans = token_spans
         return self
 
-    def sequence_tag(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _List[int]:
+    def sequence_tag(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
+        """
+        output := [label_0, label_1, label_2, ...]
+
+        if label_scheme==SingleLabel:
+            label_t := int
+            t: timestep
+
+            if tagging_scheme==BILOU:
+                label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:L-class_0, 4:U-class_0, 5:B-class_1, 6:I-class_1, ..., 4*n+1:B-class_n, 4*n+2:I-class_n, 4*n+3:L-class_n, 4*n+4:U-class_n, ...}
+            if tagging_scheme==BIO:
+                label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:B-class_1, 4:I-class_1, ..., 2*n+1:B-class_n, 2*n+2:I-class_n, ...}
+            if tagging_scheme==Independent:
+                label_t \in {0:O, 1:class_0, 2:class_1, ..., n+1:class_n, ...}
+
+        if label_scheme==MultiLabel:
+            label_t := [label_t_class_0, label_t_class_1, ..., label_t_class_N]
+            N: num_class_without_negative
+
+            label_t_class_k := int
+            k: the index of the class
+
+            if tagging_scheme==BILOU:
+                label_t_class_k \in {0:O, 1:B, 2:I, 3:L, 4:U}
+            if tagging_scheme==BIO:
+                label_t_class_k \in {0:O, 1:B, 2:I}
+            if tagging_scheme==Independent:
+                label_t_class_k \in {0:Negative, 1:Positive}
+
+        if label_scheme==SpanOnly:
+            label_t := int
+            t: timestep
+
+            if tagging_scheme==BILOU:
+                label_t \in {0:O, 1:B, 2:I, 3:L, 4:U}
+            if tagging_scheme==BIO:
+                label_t \in {0:O, 1:B, 2:I}
+            if tagging_scheme==Independent:
+                label_t \in {0:Negative, 1:Positive}
+        """
         if label_scheme == NERLabelScheme.MultiLabel:
             assert num_class_without_negative is not None, "num_class_without_negative must be specified under the multi-labelling setting."
         if only_label is None:
