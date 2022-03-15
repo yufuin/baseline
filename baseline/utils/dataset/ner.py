@@ -603,6 +603,8 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
     return sequence_label
 
 def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
+    if len(spans) == 0:
+        return list()
     max_end = max([span.e for span in spans])
     zero_table = [0 for _ in range(max_end+1)]
     label_to_table = _collections.defaultdict(lambda: list(zero_table))
