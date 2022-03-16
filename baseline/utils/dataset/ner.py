@@ -107,12 +107,21 @@ class NERInstance:
             tokenizer_kwargs = dict()
         else:
             tokenizer_kwargs = dict(tokenizer_kwargs)
-        if "add_special_tokens" not in tokenizer_kwargs:
-            tokenizer_kwargs["add_special_tokens"] = False
+        tokenizer_add_special_tokens = tokenizer_kwargs.get("add_special_tokens", False)
+        tokenizer_kwargs["add_special_tokens"] = False
+
         enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_kwargs)
         self.input_ids = enc["input_ids"]
         self.offset_mapping_start = [se[0] for se in enc["offset_mapping"]]
         self.offset_mapping_end = [se[1] for se in enc["offset_mapping"]]
+
+        if tokenizer_add_special_tokens:
+            token_len_wo_sp_tokens = len(self.input_ids)
+            last_position = self.offset_mapping_end[-1]
+            self.input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
+            assert len(self.input_ids) == token_len_wo_sp_tokens + 2
+            self.offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
+            self.offset_mapping_end = [0] + self.offset_mapping_end + [last_position]
 
         start_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_start)}
         end_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_end)}
