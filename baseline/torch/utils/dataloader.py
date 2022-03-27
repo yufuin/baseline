@@ -36,7 +36,7 @@ class SelectiveDataset(torch.utils.data.Dataset):
         selectors = [selector if type(selector) is Selector else Selector(**selector) for selector in selectors]
         assert len(selectors) == len(set(s.name for s in selectors)), "cannot use a same name multiple times."
 
-        self.instances = list(instances)
+        self.instances = instances
         self.selectors = list(selectors)
         self.sort_key = sort_key
 
