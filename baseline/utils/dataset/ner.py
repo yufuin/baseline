@@ -80,15 +80,17 @@ class NERInstance:
         return cls(**dumped)
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, fuzzy:_Optional[bool]=None, tokenizer_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, add_special_tokens:_Optional[bool]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
+            if add_special_tokens is not None:
+                encode_func_args["add_special_tokens"] = add_special_tokens
             if fuzzy is not None:
                 encode_func_args["fuzzy"] = fuzzy
-            if tokenizer_kwargs is not None:
-                encode_func_args["tokenizer_kwargs"] = tokenizer_kwargs
+            if tokenizer_other_kwargs is not None:
+                encode_func_args["tokenizer_other_kwargs"] = tokenizer_other_kwargs
             out.encode_(tokenizer, **encode_func_args)
         if check_some:
             out.check_some()
@@ -102,24 +104,31 @@ class NERInstance:
                 assert span.s < span.e, span
         return self
 
-    def encode_(self, tokenizer:_transformers.PreTrainedTokenizer, fuzzy:bool=True, tokenizer_kwargs:_Optional[dict]=None):
-        if tokenizer_kwargs is None:
-            tokenizer_kwargs = dict()
+    def encode_(self, tokenizer:_transformers.PreTrainedTokenizer, *, add_special_tokens:bool=False, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
+        TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
+        if tokenizer_other_kwargs is None:
+            tokenizer_other_kwargs = dict()
         else:
-            tokenizer_kwargs = dict(tokenizer_kwargs)
-        tokenizer_add_special_tokens = tokenizer_kwargs.get("add_special_tokens", False)
-        tokenizer_kwargs["add_special_tokens"] = False
+            tokenizer_other_kwargs = dict(tokenizer_other_kwargs)
+        if "add_special_tokens" in tokenizer_other_kwargs:
+            _logger.warning(f'found the argument "add_special_tokens" in "tokenizer_other_kwargs". change to giving the argument directly to the fucntion.')
+            add_special_tokens = tokenizer_other_kwargs["add_special_tokens"]
+        tokenizer_other_kwargs["add_special_tokens"] = False
 
-        enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_kwargs)
+        if add_special_tokens and tokenizer_other_kwargs.get("truncation", False):
+            assert "max_length" in tokenizer_other_kwargs
+            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - TWO_BECAUSE_OF_SPECIAL_TOKEN
+
+        enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_other_kwargs)
         self.input_ids = enc["input_ids"]
         self.offset_mapping_start = [se[0] for se in enc["offset_mapping"]]
         self.offset_mapping_end = [se[1] for se in enc["offset_mapping"]]
 
-        if tokenizer_add_special_tokens:
+        if add_special_tokens:
             token_len_wo_sp_tokens = len(self.input_ids)
             last_position = self.offset_mapping_end[-1]
             self.input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
-            assert len(self.input_ids) == token_len_wo_sp_tokens + 2
+            assert len(self.input_ids) == token_len_wo_sp_tokens + TWO_BECAUSE_OF_SPECIAL_TOKEN
             self.offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
             self.offset_mapping_end = [0] + self.offset_mapping_end + [last_position]
 
@@ -642,10 +651,12 @@ def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
 # %%
 if __name__ == "__main__":
     tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased")
+    # %%
     instance = NERInstance.build(
         text = "This is biomedical example.",
-        spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,26, 0, "third-span:class_0")],
-        tokenizer = tok
+        spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,27, 0, "third-span:class_0")],
+        tokenizer = tok,
+        add_special_tokens=True,
     )
     print("instance:", instance)
     print()
