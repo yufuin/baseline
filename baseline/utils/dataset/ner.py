@@ -11,6 +11,7 @@ _logger.addHandler(_ch)
 _TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
 
 
+import copy as _copy
 import collections as _collections
 import dataclasses as _D
 import enum as _enum
@@ -162,27 +163,18 @@ class NERInstance:
         self.token_spans = token_spans
 
         if add_special_tokens:
-            self.add_special_tokens_(tokenizer=tokenizer)
+            self.with_special_tokens_(tokenizer=tokenizer)
 
         return self
 
-    def add_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer):
+    def with_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer):
         assert not self.is_added_special_tokens, f'already special tokens are added. id:{self.id}'
 
         token_len_wo_sp_tokens = len(self.input_ids)
         new_input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
         assert len(new_input_ids) == token_len_wo_sp_tokens + _TWO_BECAUSE_OF_SPECIAL_TOKEN
 
-        last_position = self.offset_mapping_end[-1]
-        new_offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
-        new_offset_mapping_end = [0] + self.offset_mapping_end + [last_position]
-
-        new_token_spans = list()
-        for span in self.token_spans:
-            copied_span = NERSpan(**_D.asdict(span))
-            copied_span.s += (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
-            copied_span.e += (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
-            new_token_spans.append(copied_span)
+        new_offset_mapping_start, new_offset_mapping_end, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2, num_backward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2)
 
         self.input_ids = new_input_ids
         self.offset_mapping_start = new_offset_mapping_start
@@ -190,6 +182,74 @@ class NERInstance:
         self.token_spans = new_token_spans
         self.is_added_special_tokens = True
         return self
+
+    def with_special_tokens(self, tokenizer:_transformers.PreTrainedTokenizer):
+        out = _copy.deepcopy(self)
+        return out.with_special_tokens_(tokenizer=tokenizer)
+
+    def with_query_and_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer, encoded_query:_List[int], max_length:int):
+        assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
+
+        total_expected_len_without_truncation = len(encoded_query) + len(self.input_ids) + _TWO_BECAUSE_OF_SPECIAL_TOKEN + 1 # [CLS] query [SEP] input_ids [SEP]
+        exceeded_len = max(0, total_expected_len_without_truncation - max_length)
+        if exceeded_len > 0:
+            self._truncate_back_tokens_(size=exceeded_len)
+
+        new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
+        assert len(new_input_ids) == len(encoded_query) + len(self.input_ids) + _TWO_BECAUSE_OF_SPECIAL_TOKEN + 1 # [CLS] query [SEP] input_ids [SEP]
+
+        num_forward_padding = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1 # [CLS] query [SEP]
+        num_backward_padding = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) # [SEP]
+        new_offset_mapping_start, new_offset_mapping_end, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=num_forward_padding, num_backward_padding=num_backward_padding)
+
+        self.input_ids = new_input_ids
+        self.offset_mapping_start = new_offset_mapping_start
+        self.offset_mapping_end = new_offset_mapping_end
+        self.token_spans = new_token_spans
+        self.is_added_special_tokens = True
+        if self.meta_data is None:
+            self.meta_data = dict()
+        self.meta_data["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
+        return self
+
+    def with_query_and_special_tokens(self, tokenizer:_transformers.PreTrainedTokenizer, encoded_query:_List[int], max_length:int):
+        out = _copy.deepcopy(self)
+        return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length)
+
+
+    def _padded_mappings_and_token_spans(self, num_forward_padding:int, num_backward_padding:int):
+        last_position = self.offset_mapping_end[-1]
+        padded_offset_mapping_start = [0 for _ in range(num_forward_padding)] + self.offset_mapping_start + [last_position for _ in range(num_backward_padding)]
+        padded_offset_mapping_end = [0 for _ in range(num_forward_padding)] + self.offset_mapping_end + [last_position for _ in range(num_backward_padding)]
+
+        padded_token_spans = list()
+        for span in self.token_spans:
+            copied_span = _copy.deepcopy(span)
+            copied_span.s += num_forward_padding
+            copied_span.e += num_forward_padding
+            padded_token_spans.append(copied_span)
+
+        return padded_offset_mapping_start, padded_offset_mapping_end, padded_token_spans
+
+    def _truncate_back_tokens_(self, size:int):
+        assert not self.is_added_special_tokens, 'cannot truncate after special tokens added. id:{self.id}'
+        assert size >= 0
+        self.input_ids = self.input_ids[:-size]
+        self.offset_mapping_start = self.offset_mapping_start[:-size]
+        self.offset_mapping_end = self.offset_mapping_end[:-size]
+
+        new_token_len = len(self.input_ids)
+        new_token_spans = list()
+        for span in self.token_spans:
+            copied_span = NERSpan(**_D.asdict(span))
+            if copied_span.s >= new_token_len:
+                continue
+            if copied_span.e > new_token_len:
+                copied_span.e = new_token_len
+            new_token_spans.append(copied_span)
+        self.token_spans = new_token_spans
+        return self
+
 
     def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
         """
@@ -685,8 +745,9 @@ if __name__ == "__main__":
         text = "This is biomedical example.",
         spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,27, 0, "third-span:class_0")],
         tokenizer = tok,
-        add_special_tokens=True,
+        add_special_tokens=False,
     )
+    instance.with_special_tokens_(tok)
     print("instance:", instance)
     print()
 
