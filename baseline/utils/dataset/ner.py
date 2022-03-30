@@ -190,17 +190,17 @@ class NERInstance:
     def with_query_and_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer, encoded_query:_List[int], max_length:int):
         assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
-        total_expected_len_without_truncation = len(encoded_query) + len(self.input_ids) + _TWO_BECAUSE_OF_SPECIAL_TOKEN + 1 # [CLS] query [SEP] input_ids [SEP]
-        exceeded_len = max(0, total_expected_len_without_truncation - max_length)
+        new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
+        exceeded_len = max(0, len(new_input_ids) - max_length)
         if exceeded_len > 0:
             self._truncate_back_tokens_(size=exceeded_len)
+            new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
 
-        new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
-        assert len(new_input_ids) == len(encoded_query) + len(self.input_ids) + _TWO_BECAUSE_OF_SPECIAL_TOKEN + 1 # [CLS] query [SEP] input_ids [SEP]
-
-        num_forward_padding = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1 # [CLS] query [SEP]
-        num_backward_padding = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) # [SEP]
+        assert (self.input_ids[-1] == new_input_ids[-2]) and (self.input_ids[-1] != new_input_ids[-1]) # ... SOME_TOKEN [SEP]
+        num_backward_padding = 1
+        num_forward_padding = len(new_input_ids) - num_backward_padding - len(self.input_ids)
         new_offset_mapping_start, new_offset_mapping_end, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=num_forward_padding, num_backward_padding=num_backward_padding)
+        assert len(new_offset_mapping_start) == len(new_input_ids)
 
         self.input_ids = new_input_ids
         self.offset_mapping_start = new_offset_mapping_start
