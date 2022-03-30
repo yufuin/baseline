@@ -8,6 +8,9 @@ _formatter = _logging.Formatter('%(name)s - %(levelname)s:%(message)s')
 _ch.setFormatter(_formatter)
 _logger.addHandler(_ch)
 
+__TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
+
+
 import collections as _collections
 import dataclasses as _D
 import enum as _enum
@@ -69,6 +72,7 @@ class NERInstance:
     input_ids: _Optional[_List[int]] = None
     offset_mapping_start: _Optional[_List[int]] = None
     offset_mapping_end: _Optional[_List[int]] = None
+    is_added_special_tokens: bool = False
     token_spans: _Optional[_List[NERSpan]] = None
 
     meta_data: _Any = None
@@ -107,7 +111,9 @@ class NERInstance:
         return self
 
     def encode_(self, tokenizer:_transformers.PreTrainedTokenizer, *, add_special_tokens:bool=False, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
-        TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
+        # reset
+        self.is_added_special_tokens = False
+
         if tokenizer_other_kwargs is None:
             tokenizer_other_kwargs = dict()
         else:
@@ -119,20 +125,12 @@ class NERInstance:
 
         if add_special_tokens and tokenizer_other_kwargs.get("truncation", False):
             assert "max_length" in tokenizer_other_kwargs
-            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - TWO_BECAUSE_OF_SPECIAL_TOKEN
+            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - __TWO_BECAUSE_OF_SPECIAL_TOKEN
 
         enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_other_kwargs)
         self.input_ids = enc["input_ids"]
         self.offset_mapping_start = [se[0] for se in enc["offset_mapping"]]
         self.offset_mapping_end = [se[1] for se in enc["offset_mapping"]]
-
-        if add_special_tokens:
-            token_len_wo_sp_tokens = len(self.input_ids)
-            last_position = self.offset_mapping_end[-1]
-            self.input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
-            assert len(self.input_ids) == token_len_wo_sp_tokens + TWO_BECAUSE_OF_SPECIAL_TOKEN
-            self.offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
-            self.offset_mapping_end = [0] + self.offset_mapping_end + [last_position]
 
         start_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_start)}
         end_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_end)}
@@ -151,7 +149,7 @@ class NERInstance:
                 for et_minus_one in range(max(0,st-1), len(self.input_ids)):
                     if offset_mapping_start_with_sentinel[et_minus_one] < span.e <= offset_mapping_start_with_sentinel[et_minus_one+1]:
                         break
-                # else:
+                # else: # comment out because this must never happens
                 #     continue
 
                 token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
@@ -162,6 +160,35 @@ class NERInstance:
                 if (st is not None) and (et_minus_one is not None):
                     token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
         self.token_spans = token_spans
+
+        if add_special_tokens:
+            self.add_special_tokens_(tokenizer=tokenizer)
+
+        return self
+
+    def add_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer):
+        assert not self.is_added_special_tokens, f'already special tokens are added. id:{self.id}'
+
+        token_len_wo_sp_tokens = len(self.input_ids)
+        new_input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
+        assert len(new_input_ids) == token_len_wo_sp_tokens + __TWO_BECAUSE_OF_SPECIAL_TOKEN
+
+        last_position = self.offset_mapping_end[-1]
+        new_offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
+        new_offset_mapping_end = [0] + self.offset_mapping_end + [last_position]
+
+        new_token_spans = list()
+        for span in self.token_spans:
+            copied_span = NERSpan(**_D.asdict(span))
+            copied_span.s += (__TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
+            copied_span.e += (__TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
+            new_token_spans.append(copied_span)
+
+        self.input_ids = new_input_ids
+        self.offset_mapping_start = new_offset_mapping_start
+        self.offset_mapping_end = new_offset_mapping_end
+        self.token_spans = new_token_spans
+        self.is_added_special_tokens = True
         return self
 
     def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
