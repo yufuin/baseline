@@ -8,7 +8,7 @@ _formatter = _logging.Formatter('%(name)s - %(levelname)s:%(message)s')
 _ch.setFormatter(_formatter)
 _logger.addHandler(_ch)
 
-__TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
+_TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
 
 
 import collections as _collections
@@ -125,7 +125,7 @@ class NERInstance:
 
         if add_special_tokens and tokenizer_other_kwargs.get("truncation", False):
             assert "max_length" in tokenizer_other_kwargs
-            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - __TWO_BECAUSE_OF_SPECIAL_TOKEN
+            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - _TWO_BECAUSE_OF_SPECIAL_TOKEN
 
         enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_other_kwargs)
         self.input_ids = enc["input_ids"]
@@ -171,7 +171,7 @@ class NERInstance:
 
         token_len_wo_sp_tokens = len(self.input_ids)
         new_input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
-        assert len(new_input_ids) == token_len_wo_sp_tokens + __TWO_BECAUSE_OF_SPECIAL_TOKEN
+        assert len(new_input_ids) == token_len_wo_sp_tokens + _TWO_BECAUSE_OF_SPECIAL_TOKEN
 
         last_position = self.offset_mapping_end[-1]
         new_offset_mapping_start = [0] + self.offset_mapping_start + [last_position]
@@ -180,8 +180,8 @@ class NERInstance:
         new_token_spans = list()
         for span in self.token_spans:
             copied_span = NERSpan(**_D.asdict(span))
-            copied_span.s += (__TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
-            copied_span.e += (__TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
+            copied_span.s += (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
+            copied_span.e += (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2)
             new_token_spans.append(copied_span)
 
         self.input_ids = new_input_ids
