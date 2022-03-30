@@ -71,6 +71,8 @@ class NERInstance:
     offset_mapping_end: _Optional[_List[int]] = None
     token_spans: _Optional[_List[NERSpan]] = None
 
+    meta_data: _Any = None
+
     @classmethod
     def load_from_dict(cls, dumped):
         dumped = dict(dumped)
