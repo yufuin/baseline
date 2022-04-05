@@ -1,3 +1,5 @@
+from typing import Union
+
 import numpy as np
 import torch
 import torch.utils.data
@@ -31,7 +33,7 @@ class Selector:
             return instance[self.origin]
 
 class SelectiveDataset(torch.utils.data.Dataset):
-    def __init__(self, instances, selectors, sort_key=None, ordered=False, rng_state=12345):
+    def __init__(self, instances, selectors, sort_key=None, ordered=False, rng_state:Union[int, np.random.RandomState]=12345):
         assert all(type(selector) in [Selector, dict] for selector in selectors)
         selectors = [selector if type(selector) is Selector else Selector(**selector) for selector in selectors]
         assert len(selectors) == len(set(s.name for s in selectors)), "cannot use a same name multiple times."
@@ -40,7 +42,12 @@ class SelectiveDataset(torch.utils.data.Dataset):
         self.selectors = list(selectors)
         self.sort_key = sort_key
 
-        self.rng = np.random.RandomState(rng_state)
+        if isinstance(rng_state, int):
+            self.rng = np.random.RandomState(rng_state)
+        elif isinstance(rng_state, np.random.RandomState):
+            self.rng = rng_state
+        else:
+            raise ValueError(rng_state)
         self.ordered = ordered
         self.order = list(range(len(self.instances)))
         self.num_shuffled = 0
