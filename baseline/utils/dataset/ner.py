@@ -21,6 +21,13 @@ import numpy as _numpy
 import transformers as _transformers
 
 # %%
+class TokenizerInterface:
+    def __call__(self, *args, **kwargs) -> dict:
+        raise NotImplementedError("TokenizerInterface.__call__")
+    def build_inputs_with_special_tokens(self, *args, **kwargs) -> _List[int]:
+        raise NotImplementedError("TokenizerInterface.build_inputs_with_special_tokens")
+
+# %%
 @_D.dataclass
 class NERSpan:
     s: int
@@ -87,7 +94,7 @@ class NERInstance:
         return cls(**dumped)
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[_transformers.PreTrainedTokenizer]=None, add_special_tokens:_Optional[bool]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
@@ -111,7 +118,7 @@ class NERInstance:
                 assert span.s < span.e, span
         return self
 
-    def encode_(self, tokenizer:_transformers.PreTrainedTokenizer, *, add_special_tokens:bool=False, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
+    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
         # reset
         self.is_added_special_tokens = False
 
@@ -167,7 +174,7 @@ class NERInstance:
 
         return self
 
-    def with_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer):
+    def with_special_tokens_(self, tokenizer:TokenizerInterface):
         assert not self.is_added_special_tokens, f'already special tokens are added. id:{self.id}'
 
         token_len_wo_sp_tokens = len(self.input_ids)
@@ -183,11 +190,11 @@ class NERInstance:
         self.is_added_special_tokens = True
         return self
 
-    def with_special_tokens(self, tokenizer:_transformers.PreTrainedTokenizer):
+    def with_special_tokens(self, tokenizer:TokenizerInterface):
         out = _copy.deepcopy(self)
         return out.with_special_tokens_(tokenizer=tokenizer)
 
-    def with_query_and_special_tokens_(self, tokenizer:_transformers.PreTrainedTokenizer, encoded_query:_List[int], max_length:int):
+    def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int):
         assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
         new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
@@ -212,7 +219,7 @@ class NERInstance:
         self.meta_data["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
         return self
 
-    def with_query_and_special_tokens(self, tokenizer:_transformers.PreTrainedTokenizer, encoded_query:_List[int], max_length:int):
+    def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int):
         out = _copy.deepcopy(self)
         return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length)
 
