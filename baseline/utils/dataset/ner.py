@@ -11,6 +11,8 @@ _logger.addHandler(_ch)
 _TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
 
 
+import re as _re
+import math as _math
 import copy as _copy
 import collections as _collections
 import dataclasses as _D
@@ -71,6 +73,11 @@ class NERSpanTag(int, _enum.Enum):
     L = _enum.auto()
     U = _enum.auto()
 
+class NERTruncationScheme(str, _enum.Enum):
+    NONE = "none"
+    TRUNCATE = "truncate"
+    SPLIT = "split"
+
 @_D.dataclass
 class NERInstance:
     text: str
@@ -83,7 +90,8 @@ class NERInstance:
     is_added_special_tokens: bool = False
     token_spans: _Optional[_List[NERSpan]] = None
 
-    meta_data: _Any = None
+    metadata: dict = _D.field(default_factory=dict)
+    note: _Any = None
 
     @classmethod
     def load_from_dict(cls, dumped):
@@ -94,20 +102,21 @@ class NERInstance:
         return cls(**dumped)
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
-            if add_special_tokens is not None:
-                encode_func_args["add_special_tokens"] = add_special_tokens
-            if fuzzy is not None:
-                encode_func_args["fuzzy"] = fuzzy
-            if tokenizer_other_kwargs is not None:
-                encode_func_args["tokenizer_other_kwargs"] = tokenizer_other_kwargs
+            for key in ["add_special_tokens", "truncation", "max_length", "stride", "fuzzy", "tokenizer_other_kwargs"]:
+                value = eval(key)
+                if value is not None:
+                    encode_func_args[key] = value
             out.encode_(tokenizer, **encode_func_args)
         if check_some:
-            out.check_some()
+            if type(out) in [list, tuple]:
+                [each_out.check_some() for each_out in out]
+            else:
+                out.check_some()
         return out
 
     def check_some(self):
@@ -118,22 +127,51 @@ class NERInstance:
                 assert span.s < span.e, span
         return self
 
-    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
+    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
         # reset
         self.is_added_special_tokens = False
+
+        if isinstance(truncation, bool):
+            if truncation:
+                truncation = NERTruncationScheme.TRUNCATE
+            else:
+                truncation = NERTruncationScheme.NONE
+        elif truncation is None:
+            truncation = NERTruncationScheme.NONE
 
         if tokenizer_other_kwargs is None:
             tokenizer_other_kwargs = dict()
         else:
             tokenizer_other_kwargs = dict(tokenizer_other_kwargs)
-        if "add_special_tokens" in tokenizer_other_kwargs:
-            _logger.warning(f'found the argument "add_special_tokens" in "tokenizer_other_kwargs". change to giving the argument directly to the fucntion.')
-            add_special_tokens = tokenizer_other_kwargs["add_special_tokens"]
-        tokenizer_other_kwargs["add_special_tokens"] = False
 
-        if add_special_tokens and tokenizer_other_kwargs.get("truncation", False):
-            assert "max_length" in tokenizer_other_kwargs
-            tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - _TWO_BECAUSE_OF_SPECIAL_TOKEN
+        assert "truncation" not in tokenizer_other_kwargs, '"truncation" option can be only given at the direct argument of encode_ function.'
+        for key in ["add_special_tokens", "max_length"]:
+            if key in tokenizer_other_kwargs:
+                _logger.warning(f'found the argument "{key}" in "tokenizer_other_kwargs". change to giving the argument directly to the fucntion.')
+                exec(f'{key} = tokenizer_other_kwargs["{key}"]')
+        tokenizer_other_kwargs["add_special_tokens"] = False
+        if max_length is not None:
+            tokenizer_other_kwargs["max_length"] = max_length
+
+        if truncation == NERTruncationScheme.NONE:
+            pass
+        elif truncation == NERTruncationScheme.TRUNCATE:
+            assert max_length is not None
+            tokenizer_other_kwargs["truncation"] = True
+            if add_special_tokens:
+                max_length = max_length - _TWO_BECAUSE_OF_SPECIAL_TOKEN
+                tokenizer_other_kwargs["max_length"] = tokenizer_other_kwargs["max_length"] - _TWO_BECAUSE_OF_SPECIAL_TOKEN
+        elif truncation == NERTruncationScheme.SPLIT:
+            assert max_length is not None
+            assert stride is not None
+            if add_special_tokens:
+                assert 0 < stride <= (max_length - _TWO_BECAUSE_OF_SPECIAL_TOKEN), (stride, max_length)
+            else:
+                assert 0 < stride <= max_length, (stride, max_length)
+            tokenizer_other_kwargs["truncation"] = False
+            tokenizer_other_kwargs["max_length"] = None
+        else:
+            raise ValueError(truncation)
 
         enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_other_kwargs)
         self.input_ids = enc["input_ids"]
@@ -169,10 +207,19 @@ class NERInstance:
                     token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
         self.token_spans = token_spans
 
-        if add_special_tokens:
-            self.with_special_tokens_(tokenizer=tokenizer)
+        if truncation == NERTruncationScheme.SPLIT:
+            if add_special_tokens:
+                outs = self._split_with_size(max_length=max_length-_TWO_BECAUSE_OF_SPECIAL_TOKEN, stride=stride)
+                for out in outs:
+                    out.with_special_tokens_(tokenizer=tokenizer)
+            else:
+                outs = self._split_with_size(max_length=max_length, stride=stride)
+            return outs
 
-        return self
+        else:
+            if add_special_tokens:
+                self.with_special_tokens_(tokenizer=tokenizer)
+            return self
 
     def with_special_tokens_(self, tokenizer:TokenizerInterface):
         assert not self.is_added_special_tokens, f'already special tokens are added. id:{self.id}'
@@ -214,15 +261,47 @@ class NERInstance:
         self.offset_mapping_end = new_offset_mapping_end
         self.token_spans = new_token_spans
         self.is_added_special_tokens = True
-        if self.meta_data is None:
-            self.meta_data = dict()
-        self.meta_data["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
+        self.metadata["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
         return self
 
     def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int):
         out = _copy.deepcopy(self)
         return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length)
 
+    def _split_with_size(self, max_length, stride):
+        assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
+
+        num_splits = 1 + _math.ceil(max(0, len(self.input_ids) - max_length) / stride)
+
+        if num_splits == 1:
+            outs = [_copy.deepcopy(self)]
+            outs[0].metadata["split"] = f'c0|s0/{num_splits}|t0'
+        else:
+            outs = [_copy.deepcopy(self) for _ in range(num_splits)]
+            for s, out in enumerate(outs):
+                token_start = stride * s
+                token_end = token_start + max_length
+                out.input_ids = out.input_ids[token_start:token_end]
+                out.offset_mapping_start = out.offset_mapping_start[token_start:token_end]
+                out.offset_mapping_end = out.offset_mapping_end[token_start:token_end]
+                out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.s) and (token_span.e <= token_end)]
+
+                char_start = out.offset_mapping_start[0]
+                char_end = out.offset_mapping_end[-1]
+                out.text = out.text[char_start:char_end]
+                out.spans = [span for span in out.spans if (char_start<=span.s) and (span.e <= char_end)]
+
+                out.offset_mapping_start = [p - char_start for p in out.offset_mapping_start]
+                out.offset_mapping_end = [p - char_start for p in out.offset_mapping_end]
+                for span in out.spans:
+                    span.s = span.s - char_start
+                    span.e = span.e - char_start
+                for token_span in out.token_spans:
+                    token_span.s = token_span.s - token_start
+                    token_span.e = token_span.e - token_start
+
+                out.metadata["split"] = f'c{char_start}|s{s}/{num_splits}|t{token_start}'
+        return outs
 
     def _padded_mappings_and_token_spans(self, num_forward_padding:int, num_backward_padding:int):
         last_position = self.offset_mapping_end[-1]
@@ -383,23 +462,46 @@ class NERInstance:
 
         return out
 
-    def decode_token_span_to_char_span(self, span:_Union[NERSpan, _List[NERSpan]], strip=False) -> _Union[NERSpan, _List[NERSpan]]:
+    def decode_token_span_to_char_span(self, span:_Union[NERSpan, _List[NERSpan]], strip:bool=False, recover_split:bool=False) -> _Union[NERSpan, _List[NERSpan]]:
         if not isinstance(span, NERSpan):
-            return [self.decode_token_span_to_char_span(s, strip=strip) for s in span]
+            return [self.decode_token_span_to_char_span(s, strip=strip, recover_split=recover_split) for s in span]
 
         char_start = self.offset_mapping_start[span.s]
         if span.s == span.e:
             char_end = char_start
         else:
             char_end = self.offset_mapping_end[span.e-1]
+        out = NERSpan(s=char_start, e=char_end, l=span.l, id=span.id)
 
         if strip:
-            while (char_start < char_end) and (self.text[char_start] == " "):
-                char_start += 1
-            while (char_start < char_end) and (self.text[char_end-1] == " "):
-                char_end -= 1
+            out = self.strip_char_spans(out)
+        if recover_split:
+            out = self.recover_split_offset_of_char_spans(out)
+        return out
 
-        return NERSpan(s=char_start, e=char_end, l=span.l, id=span.id)
+    def strip_char_spans(self, span:_Union[NERSpan, _List[NERSpan]]) -> _Union[NERSpan, _List[NERSpan]]:
+        if not isinstance(span, NERSpan):
+            return [self.strip_char_spans(s) for s in span]
+
+        out = _copy.deepcopy(span)
+        while (out.s < out.e) and _re.match("\\s", self.text[out.s]):
+            out.s += 1
+        while (out.s < out.e) and _re.match("\\s", self.text[out.e-1]):
+            out.e -= 1
+        return out
+
+    def recover_split_offset_of_char_spans(self, span:_Union[NERSpan, _List[NERSpan]]) -> _Union[NERSpan, _List[NERSpan]]:
+        if not isinstance(span, NERSpan):
+            return [self.recover_split_offset_of_char_spans(s) for s in span]
+
+        split_offset = [int(data[1:]) for data in self.metadata["split"].split("|") if data[0] == "c"]
+        assert len(split_offset) == 1
+        split_offset = split_offset[0]
+
+        out = _copy.deepcopy(span)
+        out.s = out.s + split_offset
+        out.e = out.e + split_offset
+        return out
 
 
 # %%
