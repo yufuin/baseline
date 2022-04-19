@@ -395,12 +395,12 @@ class NERInstance:
             if tagging_scheme == NERTaggingScheme.BILOU:
                 if label_scheme == NERLabelScheme.SingleLabel:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
+                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = span.l * 4 # 4 <- len({B, I, L, U})
                 elif label_scheme == NERLabelScheme.SpanOnly:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
+                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MultiLabel:
@@ -420,12 +420,12 @@ class NERInstance:
             elif tagging_scheme == NERTaggingScheme.BIO:
                 if label_scheme == NERLabelScheme.SingleLabel:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
+                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = span.l * 2 # 2 <- len({B, I})
                 elif label_scheme == NERLabelScheme.SpanOnly:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), span
+                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MultiLabel:
