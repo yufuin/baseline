@@ -503,6 +503,20 @@ class NERInstance:
         out.e = out.e + split_offset
         return out
 
+    def get_parsed_metadata(self):
+        outs = dict(self.metadata)
+        if "split" in outs:
+            data = {col[0]:col[1:] for col in outs["split"].split("|")}
+            s, num_splits = map(int, data["s"].split("/"))
+            outs["split"] = {
+                "char_start": int(data["c"]),
+                "token_start": int(data["t"]),
+                "num_splits": num_splits,
+                "s": s,
+            }
+        return outs
+
+
 
 # %%
 def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel) -> _List[NERSpan]:
@@ -652,7 +666,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
     else:
         raise ValueError(label_scheme)
 
-def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, scalar_logit_for_independent:bool=False) -> _Union[_List[int],_List[_List[int]]]:
+def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, scalar_logit_for_independent:bool=False, as_spans:bool=False) -> _Union[_Union[_List[int],_List[_List[int]]], _List[NERSpan]]:
     """
     input: logits_sequence
     - 2D or 3D float list. shape==[seq_len, [num_class,] num_label].
@@ -706,6 +720,10 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         if tagging_scheme==Independent
             logits_time-step_t := [logit_Negative, logit_Positive]
     """
+    if as_spans:
+        sequence_label = viterbi_decode(logits_sequence=logits_sequence, tagging_scheme=tagging_scheme, label_scheme=label_scheme, scalar_logit_for_independent=scalar_logit_for_independent, as_spans=False)
+        return convert_sequence_label_to_spans(sequence_label=sequence_label, tagging_scheme=tagging_scheme, label_scheme=label_scheme)
+
 
     logits_sequence:_numpy.ndarray = _numpy.array(logits_sequence, dtype=_numpy.float32)
 
