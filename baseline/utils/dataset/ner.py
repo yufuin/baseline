@@ -195,8 +195,8 @@ class NERInstance:
                 for et_minus_one in range(max(0,st-1), len(self.input_ids)):
                     if offset_mapping_start_with_sentinel[et_minus_one] < span.e <= offset_mapping_start_with_sentinel[et_minus_one+1]:
                         break
-                # else: # comment out because this must never happens
-                #     continue
+                else:
+                    raise ValueError(self)
 
                 token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
 
