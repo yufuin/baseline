@@ -30,7 +30,7 @@ class TokenizerInterface:
         raise NotImplementedError("TokenizerInterface.build_inputs_with_special_tokens")
 
 # %%
-@_D.dataclass
+@_D.dataclass(frozen=True, eq=True)
 class NERSpan:
     s: int
     e: int
@@ -55,14 +55,7 @@ class NERSpan:
         assert isinstance(self.l, int)
         return self
     def without_id(self):
-        out = _copy.deepcopy(self)
-        out.id = None
-        return out
-
-    def __eq__(lhs, rhs) -> bool:
-        return (lhs.s, lhs.e, lhs.l) == (rhs.s, rhs.e, rhs.l)
-    def __hash__(self) -> int:
-        return hash(_D.astuple(self))
+        return _D.replace(self, id=None)
 
 NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 
@@ -131,10 +124,10 @@ class NERInstance:
 
     def check_some(self):
         for span in self.spans:
-            assert span.s < span.e, span
+            span.check_some()
         if self.token_spans is not None:
             for span in self.token_spans:
-                assert span.s < span.e, span
+                span.check_some()
         return self
 
     def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
@@ -294,21 +287,19 @@ class NERInstance:
                 out.input_ids = out.input_ids[token_start:token_end]
                 out.offset_mapping_start = out.offset_mapping_start[token_start:token_end]
                 out.offset_mapping_end = out.offset_mapping_end[token_start:token_end]
-                out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.s) and (token_span.e <= token_end)]
 
                 char_start = out.offset_mapping_start[0]
                 char_end = out.offset_mapping_end[-1]
                 out.text = out.text[char_start:char_end]
-                out.spans = [span for span in out.spans if (char_start<=span.s) and (span.e <= char_end)]
 
                 out.offset_mapping_start = [p - char_start for p in out.offset_mapping_start]
                 out.offset_mapping_end = [p - char_start for p in out.offset_mapping_end]
-                for span in out.spans:
-                    span.s = span.s - char_start
-                    span.e = span.e - char_start
-                for token_span in out.token_spans:
-                    token_span.s = token_span.s - token_start
-                    token_span.e = token_span.e - token_start
+
+                out.spans = [span for span in out.spans if (char_start<=span.s) and (span.e <= char_end)]
+                out.spans = [_D.replace(span, s=span.s-char_start, e=span.e-char_start) for span in out.spans]
+
+                out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.s) and (token_span.e <= token_end)]
+                out.token_spans = [_D.replace(token_span, s=token_span.s-token_start, e=token_span.e-token_start) for token_span in out.token_spans]
 
                 out.metadata["split"] = f'c{char_start}|s{s}/{num_splits}|t{token_start}'
         return outs
@@ -320,9 +311,9 @@ class NERInstance:
 
         padded_token_spans = list()
         for span in self.token_spans:
-            copied_span = _copy.deepcopy(span)
-            copied_span.s += num_forward_padding
-            copied_span.e += num_forward_padding
+            new_s = span.s + num_forward_padding
+            new_e = span.e + num_forward_padding
+            copied_span = _D.replace(span, s=new_s, e=new_e)
             padded_token_spans.append(copied_span)
 
         return padded_offset_mapping_start, padded_offset_mapping_end, padded_token_spans
@@ -493,27 +484,22 @@ class NERInstance:
         if not isinstance(span, NERSpan):
             return [self.strip_char_spans(s) for s in span]
 
-        out = _copy.deepcopy(span)
-        while (out.s < out.e) and _re.match("\\s", self.text[out.s]):
-            out.s += 1
-        while (out.s < out.e) and _re.match("\\s", self.text[out.e-1]):
-            out.e -= 1
+        forward_blank_span = _re.match("^\\s*", self.text[span.s:span.e]).span()
+        forward_blank_size = forward_blank_span[1] - forward_blank_span[0]
+        backward_blank_span = _re.search("\\s*$", self.text[span.s+forward_blank_size:span.e]).span()
+        backward_blank_size = backward_blank_span[1] - backward_blank_span[0]
+        out = _D.replace(span, s=span.s+forward_blank_size, e=span.e-backward_blank_size)
         return out
 
     def recover_split_offset_of_char_spans(self, span:_Union[NERSpan, _List[NERSpan]]) -> _Union[NERSpan, _List[NERSpan]]:
         if not isinstance(span, NERSpan):
             return [self.recover_split_offset_of_char_spans(s) for s in span]
 
-        split_offset = [int(data[1:]) for data in self.metadata["split"].split("|") if data[0] == "c"]
-        assert len(split_offset) == 1
-        split_offset = split_offset[0]
-
-        out = _copy.deepcopy(span)
-        out.s = out.s + split_offset
-        out.e = out.e + split_offset
+        split_offset = self.get_encoded_metadata()["split"]["char_start"]
+        out = _D.replace(span, s=span.s+split_offset, e=span.e+split_offset)
         return out
 
-    def get_parsed_metadata(self):
+    def get_encoded_metadata(self):
         outs = dict(self.metadata)
         if "split" in outs:
             data = {col[0]:col[1:] for col in outs["split"].split("|")}
@@ -895,82 +881,5 @@ if __name__ == "__main__":
     print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL))
     print()
 
-    # %%
-    print("multi labelling sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
-    print()
-
-    # %%
-    print("span-only (no-class) sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY))
-    print("BILOU only for class_0 ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY, only_label=0))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY))
-    print()
-
-    # %%
-    ref = set([span.without_id() for span in instance.token_spans])
-    print(ref)
-
-    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL)
-    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL)
-    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL)
-    print(bilou_spans, "=>", ref==set(bilou_spans))
-    print(bio_spans, "=>", ref==set(bio_spans))
-    print(idp_spans, "=>", ref==set(idp_spans))
-
-    # %%
-    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL)
-    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL)
-    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL)
-    print(bilou_spans, "=>", ref==set(bilou_spans))
-    print(bio_spans, "=>", ref==set(bio_spans))
-    print(idp_spans, "=>", ref==set(idp_spans))
-
-    # %%
-    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY)
-    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY)
-    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY)
-    print(bilou_spans, "=>", ref==set(bilou_spans))
-    print(bio_spans, "=>", ref==set(bio_spans))
-    print(idp_spans, "=>", ref==set(idp_spans))
-
-    # %%
-    positive_logits = _numpy.array([
-        [-0.12580859661102295, 0.13866497576236725, -0.004946088418364525, -0.011039067059755325, 0.04118518531322479, 0.209847092628479, -0.240921288728714, -0.026520986109972, -0.07723920792341232, 0.006692873779684305, -0.3117348253726959],
-        [1.0395761728286743, -1.139390230178833, -1.67435884475708, -0.682197630405426, -0.005922921001911163, 0.4142416715621948, -0.8619325160980225, -0.527134120464325, 0.5418972969055176, 0.4669799208641052, 0.9111515283584595],
-        [0.9126020669937134, -0.8182739019393921, -1.1124005317687988, -0.31609854102134705, -0.5066011548042297, -0.5548560619354248, -0.5321623682975769, -0.0609733872115612, 1.052380084991455, 0.69451904296875, 0.6331266760826111],
-        [1.1847517490386963, -0.2960182726383209, 0.17322547733783722, -0.9496498107910156, -0.7404254078865051, -0.41485345363616943, 0.5226980447769165, 0.3296244442462921, 0.5696917772293091, 0.14669597148895264, -0.407884806394577],
-        [-0.048488348722457886, -0.028185393661260605, -0.45448189973831177, -0.571286141872406, 0.3106667101383209, -0.649383544921875, 0.14023838937282562, 0.0034116366878151894, 0.7123101353645325, -0.35180336236953735, -0.7513846755027771],
-        [1.1311267614364624, -1.0243971347808838, -0.9930524230003357, -0.3362758159637451, -0.5516917109489441, 0.08782649040222168, -0.3966140151023865, 0.19338271021842957, 0.9406710863113403, -0.07828716933727264, 0.5972633361816406],
-        [0.9672456979751587, -1.850893497467041, -1.0942933559417725, -0.9000891447067261, -0.6152650713920593, 0.15397143363952637, -0.4109809100627899, -0.003905489109456539, 2.078101634979248, -0.46680164337158203, 0.4010751247406006]
-    ]) # [seq_len=7, num_class=11]
-    logits = _numpy.stack([-positive_logits, positive_logits], axis=-1) # [7, 11, 2(negative/positive)]
-    probs = 1 / (1+_numpy.exp(-logits))
-
-    decoded1 = viterbi_decode(logits, tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL)
-    decoded2 = viterbi_decode(positive_logits, tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, scalar_logit_for_independent=True)
-    decoded1 == decoded2, _numpy.array(decoded1).shape, decoded1
-
-    # %%
-    independent_spans = [
-        NERSpan(s=3, e=4, l=99, id=None),
-        NERSpan(s=85, e=86, l=100, id=None),
-        NERSpan(s=86, e=87, l=100, id=None),
-        NERSpan(s=87, e=88, l=100, id=None),
-        NERSpan(s=88, e=89, l=100, id=None),
-        NERSpan(s=89, e=90, l=100, id=None),
-        NERSpan(s=10, e=11, l=101, id=None),
-        NERSpan(s=11, e=12, l=101, id=None),
-        NERSpan(s=12, e=13, l=101, id=None),
-        NERSpan(s=13, e=14, l=101, id=None),
-        NERSpan(s=14, e=15, l=101, id=None),
-        NERSpan(s=18, e=19, l=101, id=None),
-        NERSpan(s=19, e=20, l=101, id=None),
-    ]
-    merged_spans = merge_spans(independent_spans)
-    merged_spans
 
 # %%
