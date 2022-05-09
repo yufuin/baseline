@@ -56,22 +56,22 @@ class NERSpan:
         return self
 NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 
-class NERTaggingScheme(int, _enum.Enum):
-    BILOU = 0
-    BIO = _enum.auto()
-    Independent = _enum.auto()
+class NERTaggingScheme(str, _enum.Enum):
+    BILOU = "BILOU"
+    BIO = "BIO"
+    INDEPENDENT = "INDEPENDENT"
 
-class NERLabelScheme(int, _enum.Enum):
-    SingleLabel = 0
-    MultiLabel = _enum.auto()
-    SpanOnly = _enum.auto()
+class NERLabelScheme(str, _enum.Enum):
+    SINGLE_LABEL = "SINGLE_LABEL"
+    MULTI_LABEL = "MULTI_LABEL"
+    SPAN_ONLY = "SPAN_ONLY"
 
 class NERSpanTag(int, _enum.Enum):
     O = 0
-    B = _enum.auto()
-    I = _enum.auto()
-    L = _enum.auto()
-    U = _enum.auto()
+    B = 1
+    I = 2
+    L = 3
+    U = 4
 
 class NERTruncationScheme(str, _enum.Enum):
     NONE = "none"
@@ -337,11 +337,11 @@ class NERInstance:
         return self
 
 
-    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
+    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
         """
         output := [label_0, label_1, label_2, ...]
 
-        if label_scheme==SingleLabel:
+        if label_scheme==SINGLE_LABEL:
             label_t := int
             t: timestep
 
@@ -349,10 +349,10 @@ class NERInstance:
                 label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:L-class_0, 4:U-class_0, 5:B-class_1, 6:I-class_1, ..., 4*n+1:B-class_n, 4*n+2:I-class_n, 4*n+3:L-class_n, 4*n+4:U-class_n, ...}
             if tagging_scheme==BIO:
                 label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:B-class_1, 4:I-class_1, ..., 2*n+1:B-class_n, 2*n+2:I-class_n, ...}
-            if tagging_scheme==Independent:
+            if tagging_scheme==INDEPENDENT:
                 label_t \in {0:O, 1:class_0, 2:class_1, ..., n+1:class_n, ...}
 
-        if label_scheme==MultiLabel:
+        if label_scheme==MULTI_LABEL:
             label_t := [label_t_class_0, label_t_class_1, ..., label_t_class_N]
             N: num_class_without_negative
 
@@ -363,10 +363,10 @@ class NERInstance:
                 label_t_class_k \in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
                 label_t_class_k \in {0:O, 1:B, 2:I}
-            if tagging_scheme==Independent:
+            if tagging_scheme==INDEPENDENT:
                 label_t_class_k \in {0:Negative, 1:Positive}
 
-        if label_scheme==SpanOnly:
+        if label_scheme==SPAN_ONLY:
             label_t := int
             t: timestep
 
@@ -374,36 +374,36 @@ class NERInstance:
                 label_t \in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
                 label_t \in {0:O, 1:B, 2:I}
-            if tagging_scheme==Independent:
+            if tagging_scheme==INDEPENDENT:
                 label_t \in {0:Negative, 1:Positive}
         """
-        if label_scheme == NERLabelScheme.MultiLabel:
+        if label_scheme == NERLabelScheme.MULTI_LABEL:
             assert num_class_without_negative is not None, "num_class_without_negative must be specified under the multi-labelling setting."
         if only_label is None:
             target_spans = self.token_spans
         else:
             target_spans = [span for span in self.token_spans if span.l == only_label]
 
-        if label_scheme in [NERLabelScheme.SingleLabel, NERLabelScheme.SpanOnly]:
+        if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
             out = [int(NERSpanTag.O) for _ in range(len(self.input_ids))]
-        elif label_scheme == NERLabelScheme.MultiLabel:
+        elif label_scheme == NERLabelScheme.MULTI_LABEL:
             transposed_out = [[int(NERSpanTag.O) for _ in range(len(self.input_ids))] for _ in range(num_class_without_negative)]
         else:
             raise ValueError(label_scheme)
 
         for span in target_spans:
             if tagging_scheme == NERTaggingScheme.BILOU:
-                if label_scheme == NERLabelScheme.SingleLabel:
+                if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
                         assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = span.l * 4 # 4 <- len({B, I, L, U})
-                elif label_scheme == NERLabelScheme.SpanOnly:
+                elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
                         assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
-                elif label_scheme == NERLabelScheme.MultiLabel:
+                elif label_scheme == NERLabelScheme.MULTI_LABEL:
                     target_out = transposed_out[span.l]
                     class_offset = 0
                 else:
@@ -418,17 +418,17 @@ class NERInstance:
                         target_out[i] = NERSpanTag.I + class_offset
 
             elif tagging_scheme == NERTaggingScheme.BIO:
-                if label_scheme == NERLabelScheme.SingleLabel:
+                if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
                         assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = span.l * 2 # 2 <- len({B, I})
-                elif label_scheme == NERLabelScheme.SpanOnly:
+                elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
                         assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
-                elif label_scheme == NERLabelScheme.MultiLabel:
+                elif label_scheme == NERLabelScheme.MULTI_LABEL:
                     target_out = transposed_out[span.l]
                     class_offset = 0
                 else:
@@ -438,14 +438,14 @@ class NERInstance:
                 for i in range(span.s+1, span.e):
                     target_out[i] = NERSpanTag.I + class_offset
 
-            elif tagging_scheme == NERTaggingScheme.Independent:
-                if label_scheme == NERLabelScheme.SingleLabel:
+            elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
+                if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     target_out = out
                     class_offset = span.l
-                elif label_scheme == NERLabelScheme.SpanOnly:
+                elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     target_out = out
                     class_offset = 0
-                elif label_scheme == NERLabelScheme.MultiLabel:
+                elif label_scheme == NERLabelScheme.MULTI_LABEL:
                     target_out = transposed_out[span.l]
                     class_offset = 0
                 else:
@@ -457,7 +457,7 @@ class NERInstance:
             else:
                 raise ValueError(tagging_scheme)
 
-        if label_scheme == NERLabelScheme.MultiLabel:
+        if label_scheme == NERLabelScheme.MULTI_LABEL:
             out = [list(v) for v in zip(*transposed_out)]
 
         return out
@@ -519,9 +519,9 @@ class NERInstance:
 
 
 # %%
-def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel) -> _List[NERSpan]:
-    if label_scheme in [NERLabelScheme.SingleLabel, NERLabelScheme.SpanOnly]:
-        if tagging_scheme == NERTaggingScheme.Independent:
+def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL) -> _List[NERSpan]:
+    if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
+        if tagging_scheme == NERTaggingScheme.INDEPENDENT:
             return [NERSpan(s=t,e=t+1,l=label-1) for t, label in enumerate(sequence_label) if label != 0]
 
         elif tagging_scheme == NERTaggingScheme.BILOU:
@@ -654,31 +654,31 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
         else:
             raise ValueError(tagging_scheme)
 
-    elif label_scheme == NERLabelScheme.MultiLabel:
+    elif label_scheme == NERLabelScheme.MULTI_LABEL:
         num_class = len(sequence_label[0])
         outs = list()
         for c in range(num_class):
             sequence_label_class_c = [labels[c] for labels in sequence_label]
-            spans_class_c = convert_sequence_label_to_spans(sequence_label=sequence_label_class_c, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SpanOnly)
+            spans_class_c = convert_sequence_label_to_spans(sequence_label=sequence_label_class_c, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SPAN_ONLY)
             outs.extend([NERSpan(s=span.s, e=span.e, l=c) for span in spans_class_c])
         return outs
 
     else:
         raise ValueError(label_scheme)
 
-def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SingleLabel, scalar_logit_for_independent:bool=False, as_spans:bool=False) -> _Union[_Union[_List[int],_List[_List[int]]], _List[NERSpan]]:
+def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_independent:bool=False, as_spans:bool=False) -> _Union[_Union[_List[int],_List[_List[int]]], _List[NERSpan]]:
     """
     input: logits_sequence
     - 2D or 3D float list. shape==[seq_len, [num_class,] num_label].
 
     output: sequence_label
 
-    if (scalar_logit_for_independent == True) and (tagging_scheme == Independent) and (label_scheme in [MultiLabel, SpanOnly]),
+    if (scalar_logit_for_independent == True) and (tagging_scheme == INDEPENDENT) and (label_scheme in [MULTI_LABEL, SPAN_ONLY]),
     the expected shape of logits_sequence is [seq_len, [num_class,]] and each value logits_sequence[i[,j]] will be treated as a logit of the positive probability.
     otherwise, the shape should be [seq_len, [num_class,] 2] (2:(logit_negative, logit_positive)).
 
 
-    if label_scheme==SingleLabel:
+    if label_scheme==SINGLE_LABEL:
         logits_sequence := [logits_time-step_0, logits_time-step_1, ...]
 
         if tagging_scheme==BILOU:
@@ -689,12 +689,12 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
             logits_time-step_t := [logit_O, logit_B-class_0, logit_I-class_0, logit_B-class_1, logit_I-class_1, ...]
             len(logits_time-step_t) == num_class*2 + 1 (2 <= {B,I})
 
-        if tagging_scheme==Independent
+        if tagging_scheme==INDEPENDENT
             logits_time-step_t := [logit_O, logit_class_0, logit_class_1, ...]
             len(logits_time-step_t) == num_class*1 + 1 (1 <= {Positive})
 
 
-    if label_scheme==MultiLabel:
+    if label_scheme==MULTI_LABEL:
         logits_sequence := [logits_time-step_0, logits_time-step_1, ...]
         logits_time-step_t := [logits_class_0, logits_class_1, ...]
 
@@ -704,11 +704,11 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         if tagging_scheme==BIO
             logits_class_c := [logit_O, logit_B, logit_I]
 
-        if tagging_scheme==Independent
+        if tagging_scheme==INDEPENDENT
             logits_class_c := [logit_Negative, logit_Positive]
 
 
-    if label_scheme==SpanOnly:
+    if label_scheme==SPAN_ONLY:
         logits_sequence := [logits_time-step_0, logits_time-step_1, ...]
 
         if tagging_scheme==BILOU:
@@ -717,7 +717,7 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         if tagging_scheme==BIO
             logits_time-step_t := [logit_O, logit_B, logit_I]
 
-        if tagging_scheme==Independent
+        if tagging_scheme==INDEPENDENT
             logits_time-step_t := [logit_Negative, logit_Positive]
     """
     if as_spans:
@@ -727,19 +727,19 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
 
     logits_sequence:_numpy.ndarray = _numpy.array(logits_sequence, dtype=_numpy.float32)
 
-    if label_scheme == NERLabelScheme.SingleLabel:
+    if label_scheme == NERLabelScheme.SINGLE_LABEL:
         assert len(logits_sequence.shape) == 2, logits_sequence.shape
 
         if tagging_scheme == NERTaggingScheme.BILOU:
             num_class = (logits_sequence.shape[1] - 1) // 4
         elif tagging_scheme == NERTaggingScheme.BIO:
             num_class = (logits_sequence.shape[1] - 1) // 2
-        elif tagging_scheme == NERTaggingScheme.Independent:
+        elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
             num_class = logits_sequence.shape[1] - 1
         else:
             raise ValueError(tagging_scheme)
-    elif label_scheme == NERLabelScheme.MultiLabel:
-        if (tagging_scheme == NERTaggingScheme.Independent) and scalar_logit_for_independent:
+    elif label_scheme == NERLabelScheme.MULTI_LABEL:
+        if (tagging_scheme == NERTaggingScheme.INDEPENDENT) and scalar_logit_for_independent:
             assert len(logits_sequence.shape) == 2, logits_sequence.shape
         else:
             assert len(logits_sequence.shape) == 3, logits_sequence.shape
@@ -747,12 +747,12 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         decoded = list()
         for class_i in range(logits_sequence.shape[1]):
             logit_sequence_class_i = logits_sequence[:,class_i]
-            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SpanOnly, scalar_logit_for_independent=scalar_logit_for_independent)
+            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SPAN_ONLY, scalar_logit_for_independent=scalar_logit_for_independent)
             decoded.append(decoded_class_i)
         decoded = list(zip(*decoded)) # [num_class, seq_len] -> [seq_len, num_class]
         return decoded
-    elif label_scheme == NERLabelScheme.SpanOnly:
-        if (tagging_scheme == NERTaggingScheme.Independent) and scalar_logit_for_independent:
+    elif label_scheme == NERLabelScheme.SPAN_ONLY:
+        if (tagging_scheme == NERTaggingScheme.INDEPENDENT) and scalar_logit_for_independent:
             assert len(logits_sequence.shape) == 1, logits_sequence.shape
         else:
             assert len(logits_sequence.shape) == 2, logits_sequence.shape
@@ -789,8 +789,8 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
             # I
             transition_paths[num_label_wo_O*c+2] = [num_label_wo_O*c+1, num_label_wo_O*c+2] # from B or I
 
-    elif tagging_scheme == NERTaggingScheme.Independent:
-        if label_scheme == NERLabelScheme.SpanOnly and scalar_logit_for_independent:
+    elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
+        if label_scheme == NERLabelScheme.SPAN_ONLY and scalar_logit_for_independent:
             return (logits_sequence > 0).astype(_numpy.int32).tolist()
         else:
             return logits_sequence.argmax(-1).tolist()
@@ -880,41 +880,41 @@ if __name__ == "__main__":
 
     # %%
     print("multi class single labelling sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SingleLabel))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SingleLabel))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SingleLabel))
+    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL))
     print()
 
     # %%
     print("multi labelling sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2))
+    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
+    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
+    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2))
     print()
 
     # %%
     print("span-only (no-class) sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly))
-    print("BILOU only for class_0 ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly, only_label=0))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly))
+    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY))
+    print("BILOU only for class_0 ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY, only_label=0))
+    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY))
+    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY))
     print()
 
     # %%
     print(instance.token_spans)
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SingleLabel), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SingleLabel))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SingleLabel), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SingleLabel))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SingleLabel), tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SingleLabel))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL))
 
     # %%
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MultiLabel))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MultiLabel))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL))
 
     # %%
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SpanOnly))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SpanOnly))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly), tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.SpanOnly))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY))
+    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY))
 
     # %%
     positive_logits = _numpy.array([
@@ -929,8 +929,8 @@ if __name__ == "__main__":
     logits = _numpy.stack([-positive_logits, positive_logits], axis=-1) # [7, 11, 2(negative/positive)]
     probs = 1 / (1+_numpy.exp(-logits))
 
-    decoded1 = viterbi_decode(logits, tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel)
-    decoded2 = viterbi_decode(positive_logits, tagging_scheme=NERTaggingScheme.Independent, label_scheme=NERLabelScheme.MultiLabel, scalar_logit_for_independent=True)
+    decoded1 = viterbi_decode(logits, tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL)
+    decoded2 = viterbi_decode(positive_logits, tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, scalar_logit_for_independent=True)
     decoded1 == decoded2, _numpy.array(decoded1).shape, decoded1
 
     # %%
