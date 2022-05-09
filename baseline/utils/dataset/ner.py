@@ -62,7 +62,7 @@ NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 class NERTaggingScheme(str, _enum.Enum):
     BILOU = "bilou"
     BIO = "bio"
-    INDEPENDENT = "independent"
+    TOKEN_LEVEL = "token_level"
 
 class NERLabelScheme(str, _enum.Enum):
     SINGLE_LABEL = "single_label"
@@ -114,7 +114,7 @@ class NERInstance:
                 value = eval(key)
                 if value is not None:
                     encode_func_args[key] = value
-            out.encode_(tokenizer, **encode_func_args)
+            out = out.encode_(tokenizer, **encode_func_args)
         if check_some:
             if type(out) in [list, tuple]:
                 [each_out.check_some() for each_out in out]
@@ -199,7 +199,9 @@ class NERInstance:
                     if offset_mapping_start_with_sentinel[et_minus_one] < span.e <= offset_mapping_start_with_sentinel[et_minus_one+1]:
                         break
                 else:
-                    raise ValueError(self)
+                    # continue
+                    # raise ValueError(self)
+                    pass
 
                 token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
 
@@ -244,7 +246,7 @@ class NERInstance:
         out = _copy.deepcopy(self)
         return out.with_special_tokens_(tokenizer=tokenizer)
 
-    def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int):
+    def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int, restrict_gold_class:_Optional[int]=None):
         assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
         new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
@@ -265,11 +267,16 @@ class NERInstance:
         self.token_spans = new_token_spans
         self.is_added_special_tokens = True
         self.metadata["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
+
+        if restrict_gold_class is not None:
+            self.spans = [span for span in self.spans if span.l == restrict_gold_class]
+            self.token_spans = [token_span for token_span in self.token_spans if token_span.l == restrict_gold_class]
+
         return self
 
-    def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int):
+    def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int, restrict_gold_class:_Optional[int]=None):
         out = _copy.deepcopy(self)
-        return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length)
+        return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length, restrict_gold_class=restrict_gold_class)
 
     def _split_with_size(self, max_length, stride):
         assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
@@ -328,17 +335,20 @@ class NERInstance:
         new_token_len = len(self.input_ids)
         new_token_spans = list()
         for span in self.token_spans:
-            copied_span = NERSpan(**_D.asdict(span))
-            if copied_span.s >= new_token_len:
+            # if span.e > new_token_len:
+            #     continue
+            if span.s >= new_token_len:
                 continue
-            if copied_span.e > new_token_len:
-                copied_span.e = new_token_len
-            new_token_spans.append(copied_span)
+            if span.e > new_token_len:
+                span = _D.replace(span, e=new_token_len)
+
+            new_token_spans.append(span)
+
         self.token_spans = new_token_spans
         return self
 
 
-    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, only_label:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
+    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
         """
         output := [label_0, label_1, label_2, ...]
 
@@ -350,7 +360,7 @@ class NERInstance:
                 label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:L-class_0, 4:U-class_0, 5:B-class_1, 6:I-class_1, ..., 4*n+1:B-class_n, 4*n+2:I-class_n, 4*n+3:L-class_n, 4*n+4:U-class_n, ...}
             if tagging_scheme==BIO:
                 label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:B-class_1, 4:I-class_1, ..., 2*n+1:B-class_n, 2*n+2:I-class_n, ...}
-            if tagging_scheme==INDEPENDENT:
+            if tagging_scheme==TOKEN_LEVEL:
                 label_t \in {0:O, 1:class_0, 2:class_1, ..., n+1:class_n, ...}
 
         if label_scheme==MULTI_LABEL:
@@ -364,7 +374,7 @@ class NERInstance:
                 label_t_class_k \in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
                 label_t_class_k \in {0:O, 1:B, 2:I}
-            if tagging_scheme==INDEPENDENT:
+            if tagging_scheme==TOKEN_LEVEL:
                 label_t_class_k \in {0:Negative, 1:Positive}
 
         if label_scheme==SPAN_ONLY:
@@ -375,15 +385,15 @@ class NERInstance:
                 label_t \in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
                 label_t \in {0:O, 1:B, 2:I}
-            if tagging_scheme==INDEPENDENT:
+            if tagging_scheme==TOKEN_LEVEL:
                 label_t \in {0:Negative, 1:Positive}
         """
         if label_scheme == NERLabelScheme.MULTI_LABEL:
             assert num_class_without_negative is not None, "num_class_without_negative must be specified under the multi-labelling setting."
-        if only_label is None:
+        if restrict_gold_class is None:
             target_spans = self.token_spans
         else:
-            target_spans = [span for span in self.token_spans if span.l == only_label]
+            target_spans = [span for span in self.token_spans if span.l == restrict_gold_class]
 
         if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
             out = [int(NERSpanTag.O) for _ in range(len(self.input_ids))]
@@ -439,7 +449,7 @@ class NERInstance:
                 for i in range(span.s+1, span.e):
                     target_out[i] = NERSpanTag.I + class_offset
 
-            elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
+            elif tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     target_out = out
                     class_offset = span.l
@@ -517,7 +527,7 @@ class NERInstance:
 # %%
 def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL) -> _List[NERSpan]:
     if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
-        if tagging_scheme == NERTaggingScheme.INDEPENDENT:
+        if tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
             return [NERSpan(s=t,e=t+1,l=label-1) for t, label in enumerate(sequence_label) if label != 0]
 
         elif tagging_scheme == NERTaggingScheme.BILOU:
@@ -662,14 +672,14 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
     else:
         raise ValueError(label_scheme)
 
-def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_independent:bool=False, as_spans:bool=False) -> _Union[_Union[_List[int],_List[_List[int]]], _List[NERSpan]]:
+def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List[_List[_List[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_token_level:bool=False, as_spans:bool=False) -> _Union[_Union[_List[int],_List[_List[int]]], _List[NERSpan]]:
     """
     input: logits_sequence
     - 2D or 3D float list. shape==[seq_len, [num_class,] num_label].
 
     output: sequence_label
 
-    if (scalar_logit_for_independent == True) and (tagging_scheme == INDEPENDENT) and (label_scheme in [MULTI_LABEL, SPAN_ONLY]),
+    if (scalar_logit_for_token_level == True) and (tagging_scheme == TOKEN_LEVEL) and (label_scheme in [MULTI_LABEL, SPAN_ONLY]),
     the expected shape of logits_sequence is [seq_len, [num_class,]] and each value logits_sequence[i[,j]] will be treated as a logit of the positive probability.
     otherwise, the shape should be [seq_len, [num_class,] 2] (2:(logit_negative, logit_positive)).
 
@@ -685,7 +695,7 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
             logits_time-step_t := [logit_O, logit_B-class_0, logit_I-class_0, logit_B-class_1, logit_I-class_1, ...]
             len(logits_time-step_t) == num_class*2 + 1 (2 <= {B,I})
 
-        if tagging_scheme==INDEPENDENT
+        if tagging_scheme==TOKEN_LEVEL
             logits_time-step_t := [logit_O, logit_class_0, logit_class_1, ...]
             len(logits_time-step_t) == num_class*1 + 1 (1 <= {Positive})
 
@@ -700,7 +710,7 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         if tagging_scheme==BIO
             logits_class_c := [logit_O, logit_B, logit_I]
 
-        if tagging_scheme==INDEPENDENT
+        if tagging_scheme==TOKEN_LEVEL
             logits_class_c := [logit_Negative, logit_Positive]
 
 
@@ -713,11 +723,11 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         if tagging_scheme==BIO
             logits_time-step_t := [logit_O, logit_B, logit_I]
 
-        if tagging_scheme==INDEPENDENT
+        if tagging_scheme==TOKEN_LEVEL
             logits_time-step_t := [logit_Negative, logit_Positive]
     """
     if as_spans:
-        sequence_label = viterbi_decode(logits_sequence=logits_sequence, tagging_scheme=tagging_scheme, label_scheme=label_scheme, scalar_logit_for_independent=scalar_logit_for_independent, as_spans=False)
+        sequence_label = viterbi_decode(logits_sequence=logits_sequence, tagging_scheme=tagging_scheme, label_scheme=label_scheme, scalar_logit_for_token_level=scalar_logit_for_token_level, as_spans=False)
         return convert_sequence_label_to_spans(sequence_label=sequence_label, tagging_scheme=tagging_scheme, label_scheme=label_scheme)
 
 
@@ -730,12 +740,12 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
             num_class = (logits_sequence.shape[1] - 1) // 4
         elif tagging_scheme == NERTaggingScheme.BIO:
             num_class = (logits_sequence.shape[1] - 1) // 2
-        elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
+        elif tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
             num_class = logits_sequence.shape[1] - 1
         else:
             raise ValueError(tagging_scheme)
     elif label_scheme == NERLabelScheme.MULTI_LABEL:
-        if (tagging_scheme == NERTaggingScheme.INDEPENDENT) and scalar_logit_for_independent:
+        if (tagging_scheme == NERTaggingScheme.TOKEN_LEVEL) and scalar_logit_for_token_level:
             assert len(logits_sequence.shape) == 2, logits_sequence.shape
         else:
             assert len(logits_sequence.shape) == 3, logits_sequence.shape
@@ -743,12 +753,12 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
         decoded = list()
         for class_i in range(logits_sequence.shape[1]):
             logit_sequence_class_i = logits_sequence[:,class_i]
-            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SPAN_ONLY, scalar_logit_for_independent=scalar_logit_for_independent)
+            decoded_class_i = viterbi_decode(logits_sequence=logit_sequence_class_i, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SPAN_ONLY, scalar_logit_for_token_level=scalar_logit_for_token_level)
             decoded.append(decoded_class_i)
         decoded = list(zip(*decoded)) # [num_class, seq_len] -> [seq_len, num_class]
         return decoded
     elif label_scheme == NERLabelScheme.SPAN_ONLY:
-        if (tagging_scheme == NERTaggingScheme.INDEPENDENT) and scalar_logit_for_independent:
+        if (tagging_scheme == NERTaggingScheme.TOKEN_LEVEL) and scalar_logit_for_token_level:
             assert len(logits_sequence.shape) == 1, logits_sequence.shape
         else:
             assert len(logits_sequence.shape) == 2, logits_sequence.shape
@@ -785,8 +795,8 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
             # I
             transition_paths[num_label_wo_O*c+2] = [num_label_wo_O*c+1, num_label_wo_O*c+2] # from B or I
 
-    elif tagging_scheme == NERTaggingScheme.INDEPENDENT:
-        if label_scheme == NERLabelScheme.SPAN_ONLY and scalar_logit_for_independent:
+    elif tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
+        if label_scheme == NERLabelScheme.SPAN_ONLY and scalar_logit_for_token_level:
             return (logits_sequence > 0).astype(_numpy.int32).tolist()
         else:
             return logits_sequence.argmax(-1).tolist()
@@ -864,22 +874,40 @@ def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
 if __name__ == "__main__":
     tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased")
     # %%
-    instance = NERInstance.build(
-        text = "This is biomedical example.",
-        spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,27, 0, "third-span:class_0")],
-        tokenizer = tok,
-        add_special_tokens=False,
+    _instance_without_sp = NERInstance.build(
+        text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
+        spans = [[9,9+14, 0, "first-span:class_0:very long text"], [88,88+10, 3, "second-span:class_3:the bert model"], (116,116+9, 2, "third-span:class_2:the input")],
     )
-    instance.with_special_tokens_(tok)
-    print("instance:", instance)
-    print()
+    _num_class = 4
+    _instance_without_sp.encode_(tokenizer=tok, add_special_tokens=False, truncation=False)
+    _instance_with_sp = _instance_without_sp.with_special_tokens(tok)
+    _bilou_gold_label = _instance_with_sp.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL)
+    _multi_label_indep_gold_label = _instance_with_sp.get_sequence_label(tagging_scheme=NERTaggingScheme.TOKEN_LEVEL, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=_num_class)
+    print("_instance_without_sp:", _instance_with_sp)
+    print("_bilou_gold_label:", _bilou_gold_label)
+    print("_multi_label_indep_gold_label:", _multi_label_indep_gold_label)
+
 
     # %%
-    print("multi class single labelling sequence label:")
-    print("BILOU ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL))
-    print("BIO ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL))
-    print("token-level ->", instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    _encoded_query = tok("what model is used ?", add_special_tokens=False)["input_ids"]
+    _instance_with_query = _instance_without_sp.with_query_and_special_tokens(tokenizer=tok, encoded_query=_encoded_query, max_length=30, restrict_gold_class=3)
+    _gold_label_for_query = _instance_with_query.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY)
+    print(_instance_with_query)
     print()
+    print("label:", _gold_label_for_query)
+
+
+    # %%
+    _instances_split_by_stride = NERInstance.build(
+        text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
+        spans = [[9,9+14, 0, "first-span:class_0:very long text"], [88,88+10, 3, "second-span:class_3:the bert model"], (116,116+9, 2, "third-span:class_2:the input")],
+        tokenizer = tok,
+        add_special_tokens=True,
+        truncation = NERTruncationScheme.SPLIT,
+        max_length = 8,
+        stride = 2,
+    )
+    print(type(_instances_split_by_stride), type(_instances_split_by_stride[0]), len(_instances_split_by_stride))
 
 
 # %%

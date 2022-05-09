@@ -251,7 +251,7 @@ class NERInstanceTestCase(unittest.TestCase):
 
         recovered_single_label_bilou_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL), tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
         recovered_single_label_bio_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.SINGLE_LABEL), tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
-        recovered_single_label_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.SINGLE_LABEL), tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
+        recovered_single_label_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.SINGLE_LABEL), tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
         self.assertEqual(ref_spans1, set(recovered_single_label_bilou_spans))
         self.assertEqual(ref_spans1, set(recovered_single_label_bio_spans))
         self.assertNotEqual(ref_spans1, set(recovered_single_label_indep_spans))
@@ -259,7 +259,7 @@ class NERInstanceTestCase(unittest.TestCase):
 
         recovered_multi_label_bilou_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.MULTI_LABEL, num_class_without_negative=num_classes), tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
         recovered_multi_label_bio_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.MULTI_LABEL, num_class_without_negative=num_classes), tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
-        recovered_multi_label_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.MULTI_LABEL, num_class_without_negative=num_classes), tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
+        recovered_multi_label_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.MULTI_LABEL, num_class_without_negative=num_classes), tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
         self.assertEqual(ref_spans1, set(recovered_multi_label_bilou_spans))
         self.assertEqual(ref_spans1, set(recovered_multi_label_bio_spans))
         self.assertNotEqual(ref_spans1, set(recovered_multi_label_indep_spans))
@@ -267,7 +267,7 @@ class NERInstanceTestCase(unittest.TestCase):
 
         recovered_span_only_bilou_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SPAN_ONLY), tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SPAN_ONLY)
         recovered_span_only_bio_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.SPAN_ONLY), tagging_scheme=ner.NERTaggingScheme.BIO, label_scheme=ner.NERLabelScheme.SPAN_ONLY)
-        recovered_span_only_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.SPAN_ONLY), tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.SPAN_ONLY)
+        recovered_span_only_indep_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.SPAN_ONLY), tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.SPAN_ONLY)
         self.assertNotEqual(ref_spans1, set(recovered_span_only_bilou_spans))
         self.assertEqual(ref_spans1_without_class, set(recovered_span_only_bilou_spans))
         self.assertNotEqual(ref_spans1, set(recovered_span_only_bio_spans))
@@ -291,9 +291,9 @@ class NERInstanceTestCase(unittest.TestCase):
         binary_logits1 = np.stack([-logits1, logits1], axis=-1) # [7, 11, 2(negative/positive)]
         probs1 = 1 / (1+np.exp(-binary_logits1))
 
-        # as independent multi label
-        decoded1 = ner.viterbi_decode(binary_logits1, tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
-        decoded2 = ner.viterbi_decode(logits1, tagging_scheme=ner.NERTaggingScheme.INDEPENDENT, label_scheme=ner.NERLabelScheme.MULTI_LABEL, scalar_logit_for_independent=True)
+        # as token level multi label
+        decoded1 = ner.viterbi_decode(binary_logits1, tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.MULTI_LABEL)
+        decoded2 = ner.viterbi_decode(logits1, tagging_scheme=ner.NERTaggingScheme.TOKEN_LEVEL, label_scheme=ner.NERLabelScheme.MULTI_LABEL, scalar_logit_for_token_level=True)
         self.assertEqual(decoded1, decoded2)
 
         # as single label bilou
@@ -363,7 +363,7 @@ class NERInstanceTestCase(unittest.TestCase):
             ner.NERSpan(18,20, 101),
             ner.NERSpan(85,90, 100)
         }
-        independent_spans = [
+        token_level_spans = [
             ner.NERSpan(s=3, e=4, l=99, id=None),
             ner.NERSpan(s=85, e=86, l=100, id=None),
             ner.NERSpan(s=86, e=87, l=100, id=None),
@@ -379,8 +379,8 @@ class NERInstanceTestCase(unittest.TestCase):
             ner.NERSpan(s=19, e=20, l=101, id=None),
         ]
         rng = np.random.RandomState(123)
-        rng.shuffle(independent_spans)
-        merged_spans = ner.merge_spans(independent_spans)
+        rng.shuffle(token_level_spans)
+        merged_spans = ner.merge_spans(token_level_spans)
         self.assertEqual(ref_spans, set(merged_spans))
 
     def test_strip_char_spans(self):
