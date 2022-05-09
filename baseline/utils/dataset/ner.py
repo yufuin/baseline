@@ -54,6 +54,10 @@ class NERSpan:
         assert self.s < self.e
         assert isinstance(self.l, int)
         return self
+
+    def __eq__(lhs, rhs) -> bool:
+        return (lhs.s, lhs.e, lhs.l) == (rhs.s, rhs.e, rhs.l)
+
 NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 
 class NERTaggingScheme(str, _enum.Enum):
