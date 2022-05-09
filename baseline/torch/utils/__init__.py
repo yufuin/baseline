@@ -7,6 +7,3 @@ del averagemanager
 from baseline.torch.utils.dataloader import SelectiveDataset, Selector
 del dataloader
 
-from baseline.torch.utils.transformers_utils_for_pytorch import get_transformers_output_dim
-del transformers_utils_for_pytorch
-
