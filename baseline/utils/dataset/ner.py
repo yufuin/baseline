@@ -60,14 +60,14 @@ class NERSpan:
 NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 
 class NERTaggingScheme(str, _enum.Enum):
-    BILOU = "BILOU"
-    BIO = "BIO"
-    INDEPENDENT = "INDEPENDENT"
+    BILOU = "bilou"
+    BIO = "bio"
+    INDEPENDENT = "independent"
 
 class NERLabelScheme(str, _enum.Enum):
-    SINGLE_LABEL = "SINGLE_LABEL"
-    MULTI_LABEL = "MULTI_LABEL"
-    SPAN_ONLY = "SPAN_ONLY"
+    SINGLE_LABEL = "single_label"
+    MULTI_LABEL = "multi_label"
+    SPAN_ONLY = "span_only"
 
 class NERSpanTag(int, _enum.Enum):
     O = 0
