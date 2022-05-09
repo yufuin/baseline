@@ -909,5 +909,9 @@ if __name__ == "__main__":
     )
     print(type(_instances_split_by_stride), type(_instances_split_by_stride[0]), len(_instances_split_by_stride))
 
+    # %%
+    # step_preds = BNER.viterbi_decode(step_logit, tagging_scheme=model_config.tagging_scheme, label_scheme=model_config.label_scheme, scalar_logit_for_independent=True, as_spans=True)
+    # step_preds = instance.decode_token_span_to_char_span(step_preds, strip=True, recover_split=True)
+
 
 # %%
