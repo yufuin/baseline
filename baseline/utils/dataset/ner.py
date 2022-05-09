@@ -54,9 +54,15 @@ class NERSpan:
         assert self.s < self.e
         assert isinstance(self.l, int)
         return self
+    def without_id(self):
+        out = _copy.deepcopy(self)
+        out.id = None
+        return out
 
     def __eq__(lhs, rhs) -> bool:
         return (lhs.s, lhs.e, lhs.l) == (rhs.s, rhs.e, rhs.l)
+    def __hash__(self) -> int:
+        return hash(_D.astuple(self))
 
 NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
 
@@ -905,20 +911,31 @@ if __name__ == "__main__":
     print()
 
     # %%
-    print(instance.token_spans)
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL))
+    ref = set([span.without_id() for span in instance.token_spans])
+    print(ref)
+
+    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SINGLE_LABEL)
+    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SINGLE_LABEL)
+    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SINGLE_LABEL)
+    print(bilou_spans, "=>", ref==set(bilou_spans))
+    print(bio_spans, "=>", ref==set(bio_spans))
+    print(idp_spans, "=>", ref==set(idp_spans))
 
     # %%
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL))
+    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.MULTI_LABEL)
+    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.MULTI_LABEL)
+    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=2), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.MULTI_LABEL)
+    print(bilou_spans, "=>", ref==set(bilou_spans))
+    print(bio_spans, "=>", ref==set(bio_spans))
+    print(idp_spans, "=>", ref==set(idp_spans))
 
     # %%
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY))
-    print(convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY))
+    bilou_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY)
+    bio_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.BIO, label_scheme=NERLabelScheme.SPAN_ONLY)
+    idp_spans = convert_sequence_label_to_spans(instance.get_sequence_label(tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY), tagging_scheme=NERTaggingScheme.INDEPENDENT, label_scheme=NERLabelScheme.SPAN_ONLY)
+    print(bilou_spans, "=>", ref==set(bilou_spans))
+    print(bio_spans, "=>", ref==set(bio_spans))
+    print(idp_spans, "=>", ref==set(idp_spans))
 
     # %%
     positive_logits = _numpy.array([
