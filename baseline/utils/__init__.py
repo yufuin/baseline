@@ -7,9 +7,6 @@ del dictionary
 from baseline.utils.closed_interval import ClosedInterval
 del closed_interval
 
-from baseline.utils.transformers_utils import SubwordOffsetTokenizer
-del transformers_utils
-
 from baseline.utils.metrics import compute_precision_recall_f
 del metrics
 
@@ -25,6 +22,8 @@ del argparse
 from baseline.utils.chunk import chunking
 del chunk
 
+
+import baseline.utils.transformers_utils
 import baseline.utils.unique_id
 
 import baseline.utils.dataset
