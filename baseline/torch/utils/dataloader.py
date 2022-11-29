@@ -33,7 +33,7 @@ class Selector:
             return instance[self.origin]
 
 class SelectiveDataset(torch.utils.data.Dataset):
-    def __init__(self, instances, selectors, sort_key=None, ordered=False, rng_state:Union[int, np.random.RandomState]=12345):
+    def __init__(self, instances, selectors, sort_key=None, controlled_shuffle=False, rng_state:Union[int, np.random.RandomState]=12345):
         assert all(type(selector) in [Selector, dict] for selector in selectors)
         selectors = [selector if type(selector) is Selector else Selector(**selector) for selector in selectors]
         assert len(selectors) == len(set(s.name for s in selectors)), "cannot use a same name multiple times."
@@ -48,15 +48,15 @@ class SelectiveDataset(torch.utils.data.Dataset):
             self.rng = rng_state
         else:
             raise ValueError(rng_state)
-        self.ordered = ordered
+        self.controlled_shuffle = controlled_shuffle
         self.order = list(range(len(self.instances)))
         self.num_shuffled = 0
-        if self.ordered:
+        if self.controlled_shuffle:
             self.shuffle_order()
 
     def shuffle_order(self):
         order = list(range(len(self.instances)))
-        self.ordered = True
+        self.controlled_shuffle = True
         self.rng.shuffle(order)
         self.order = order
         self.num_shuffled += 1
@@ -97,6 +97,7 @@ class SelectiveDataset(torch.utils.data.Dataset):
         return outputs
 
     def dataloader(self, batch_size, shuffle, *args, **kwargs):
+        assert not (shuffle and self.controlled_shuffle), "use this.shuffle_order() before calling this.dataloader() when self.controlled_shuffle==True"
         return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn, *args, **kwargs)
 
 """
