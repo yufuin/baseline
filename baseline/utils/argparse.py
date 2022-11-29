@@ -84,7 +84,7 @@ class DataclassArgumentParser(_A.ArgumentParser, Generic[Dataclass]):
                     true_argkwparams["help"] = field.metadata["help"]
 
                 default_side_argkwparams = true_argkwparams if default_value is True else false_argkwparams
-                default_side_argkwparams["help"] = " ".join(["(default)"] + default_side_argkwparams.get("help", []))
+                default_side_argkwparams["help"] = " ".join([f'(default={default_value})'] + (lambda x: list() if x=="" else [x])(default_side_argkwparams.get("help", "")))
 
                 self.add_argument("--"+field.name, dest=field.name, action="store_true", **true_argkwparams)
                 self.add_argument("--no_"+field.name, dest=field.name, action="store_false", **false_argkwparams)
