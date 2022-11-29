@@ -52,9 +52,9 @@ class SelectiveDataset(torch.utils.data.Dataset):
         self.order = list(range(len(self.instances)))
         self.num_shuffled = 0
         if self.controlled_shuffle:
-            self.shuffle_order()
+            self.shuffle_order_()
 
-    def shuffle_order(self):
+    def shuffle_order_(self):
         order = list(range(len(self.instances)))
         self.controlled_shuffle = True
         self.rng.shuffle(order)
@@ -97,7 +97,7 @@ class SelectiveDataset(torch.utils.data.Dataset):
         return outputs
 
     def dataloader(self, batch_size, shuffle, *args, **kwargs):
-        assert not (shuffle and self.controlled_shuffle), "use this.shuffle_order() before calling this.dataloader() when self.controlled_shuffle==True"
+        assert not (shuffle and self.controlled_shuffle), "use this.shuffle_order_() before calling this.dataloader() when self.controlled_shuffle==True"
         return torch.utils.data.DataLoader(self, batch_size=batch_size, shuffle=shuffle, collate_fn=self.collate_fn, *args, **kwargs)
 
 """
