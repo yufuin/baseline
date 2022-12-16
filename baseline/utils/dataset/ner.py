@@ -285,11 +285,11 @@ class NERInstance:
 
         if num_splits == 1:
             outs = [_copy.deepcopy(self)]
-            outs[0].metadata["split"] = f'c0|s0/{num_splits}|t0'
+            outs[0].metadata["split"] = f's0/{num_splits}|c0|t0'
         else:
             outs = [_copy.deepcopy(self) for _ in range(num_splits)]
-            for s, out in enumerate(outs):
-                token_start = stride * s
+            for split_idx, out in enumerate(outs):
+                token_start = stride * split_idx
                 token_end = token_start + max_length
                 out.input_ids = out.input_ids[token_start:token_end]
                 out.offset_mapping_start = out.offset_mapping_start[token_start:token_end]
@@ -308,7 +308,7 @@ class NERInstance:
                 out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.s) and (token_span.e <= token_end)]
                 out.token_spans = [_D.replace(token_span, s=token_span.s-token_start, e=token_span.e-token_start) for token_span in out.token_spans]
 
-                out.metadata["split"] = f'c{char_start}|s{s}/{num_splits}|t{token_start}'
+                out.metadata["split"] = f's{split_idx}/{num_splits}|c{char_start}|t{token_start}'
         return outs
 
     def _padded_mappings_and_token_spans(self, num_forward_padding:int, num_backward_padding:int):
@@ -513,12 +513,12 @@ class NERInstance:
         outs = dict(self.metadata)
         if "split" in outs:
             data = {col[0]:col[1:] for col in outs["split"].split("|")}
-            s, num_splits = map(int, data["s"].split("/"))
+            split_idx, num_splits = map(int, data["s"].split("/"))
             outs["split"] = {
+                "num_splits": num_splits,
+                "split_idx": split_idx,
                 "char_start": int(data["c"]),
                 "token_start": int(data["t"]),
-                "num_splits": num_splits,
-                "s": s,
             }
         return outs
 
