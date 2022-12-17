@@ -505,11 +505,11 @@ class NERInstance:
         if not isinstance(span, NERSpan):
             return [self.recover_split_offset_of_char_spans(s) for s in span]
 
-        split_offset = self.get_encoded_metadata()["split"]["char_start"]
+        split_offset = self.get_decoded_metadata()["split"]["char_start"]
         out = _D.replace(span, s=span.s+split_offset, e=span.e+split_offset)
         return out
 
-    def get_encoded_metadata(self):
+    def get_decoded_metadata(self):
         outs = dict(self.metadata)
         if "split" in outs:
             data = {col[0]:col[1:] for col in outs["split"].split("|")}

@@ -207,7 +207,7 @@ class NERInstanceTestCase(unittest.TestCase):
         # recover text
         recovered_text = [None for _ in range(len(instance1.text))]
         for instance in split_instances1_without_sp:
-            start = instance.get_encoded_metadata()["split"]["char_start"]
+            start = instance.get_decoded_metadata()["split"]["char_start"]
             end = start + len(instance.text)
             for src,dest in enumerate(range(start, end)):
                 if recovered_text[dest] is not None:
@@ -218,7 +218,7 @@ class NERInstanceTestCase(unittest.TestCase):
         # recover input_ids
         recovered_input_ids = [None for _ in range(len(instance1_without_sp.input_ids))]
         for instance in split_instances1_without_sp:
-            start = instance.get_encoded_metadata()["split"]["token_start"]
+            start = instance.get_decoded_metadata()["split"]["token_start"]
             end = start + len(instance.input_ids)
             for src,dest in enumerate(range(start, end)):
                 if recovered_input_ids[dest] is not None:
