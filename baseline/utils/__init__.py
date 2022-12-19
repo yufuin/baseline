@@ -1,4 +1,4 @@
-from baseline.utils.padding import pad, get_padded_shape
+from baseline.utils.padding import pad, get_padded_shape, pad_numpy, get_padded_shape_numpy
 del padding
 
 from baseline.utils.dictionary import BasicDictionary, MultiDictionary
