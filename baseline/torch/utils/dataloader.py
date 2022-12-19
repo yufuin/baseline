@@ -4,10 +4,10 @@ import numpy as np
 import torch
 import torch.utils.data
 
-from baseline.utils import pad
+from baseline.utils import pad, pad_numpy
 
 class Selector:
-    def __init__(self, name, origin=None, mapping=None, dtype=None, device=None, padding=False, padding_value=0, padding_mask=False):
+    def __init__(self, name, origin=None, mapping=None, dtype=None, device=None, padding:bool=False, padding_value=0, padding_mask:bool=False, use_pad_numpy:bool=False):
         assert not ((origin is not None) and (mapping is not None)), "cannot set both origin and mapping"
         self.name = name
         self._origin = origin
@@ -17,6 +17,7 @@ class Selector:
         self.padding = padding
         self.padding_value = padding_value
         self.padding_mask = padding_mask
+        self.use_pad_numpy = use_pad_numpy
     @property
     def origin(self):
         if self._origin is not None:
@@ -79,7 +80,10 @@ class SelectiveDataset(torch.utils.data.Dataset):
             values = [instance[key] for instance in instances]
 
             if selector.padding:
-                values, masks = pad(values, selector.padding_value)
+                if selector.use_pad_numpy:
+                    values, masks = pad_numpy(values, selector.padding_value)
+                else:
+                    values, masks = pad(values, selector.padding_value)
 
                 if selector.padding_mask:
                     masks = torch.FloatTensor(masks)
