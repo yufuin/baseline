@@ -1,16 +1,22 @@
-from itertools import zip_longest
+from itertools import zip_longest as _zip_longest
+import numpy as _np
 
 def get_padded_shape(seq):
     assert type(seq) in [list, tuple]
-    shape = _get_padded_shape(seq)
+    shape, depth, is_empty = _get_padded_shape(seq)
+    assert len(shape) == depth
     return shape
-def _get_padded_shape(seq, _current_depth=0):
+def _get_padded_shape(seq, current_depth=1):
     if any(type(deep) in [list, tuple] for deep in seq):
-        deep_shapes = [_get_padded_shape(deep_seq, _current_depth=_current_depth+1) for deep_seq in seq]
-        deep_shape = [max(lens) for lens in zip_longest(*deep_shapes, fillvalue=0)]
-        return [len(seq), *deep_shape]
+        deep_shapes, depths, is_empties = zip(*[_get_padded_shape(deep_seq, current_depth=current_depth+1) for deep_seq in seq])
+        max_depth = max(depths)
+        assert all(max_depth == depth for depth,is_empty in zip(depths, is_empties) if not is_empty), (depths, is_empties, seq)
+        deep_shape = [max(lens) for lens in _zip_longest(*deep_shapes, fillvalue=0)]
+        is_all_empty = all(is_empties)
+        return [len(seq), *deep_shape], max_depth, is_all_empty
     else:
-        return [len(seq)]
+        is_empty = len(seq) == 0
+        return [len(seq)], current_depth, is_empty
 
 def pad(seq, padding_value):
     assert type(seq) is list
@@ -41,3 +47,4 @@ def _pad(seq, padding_value, shape, _current_depth=0):
         pad_vec = pad_vec * (shape[_current_depth] - len(seq))
         mask = deep_mask + zero_vec * (shape[_current_depth] - len(seq))
         return deep_seqs + pad_vec, mask
+
