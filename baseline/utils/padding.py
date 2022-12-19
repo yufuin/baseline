@@ -74,3 +74,51 @@ def _get_padded_shape_numpy(seq, current_depth=1):
         is_empty = False
         return shape, depth, is_empty
 
+def _check_dtype(seq):
+    if type(seq) in [list, tuple]:
+        dtypes = [_check_dtype(v) for v in seq]
+        dtypes = [dtype for dtype in dtypes if dtype is not None]
+        if len(dtypes) == 0:
+            return None
+        else:
+            first_dtype = dtypes[0]
+            assert all(dtype == first_dtype for dtype in dtypes), dtypes
+            return first_dtype
+    else:
+        assert type(seq) is _np.ndarray
+        return seq.dtype
+
+def pad_numpy(seq, padding_value):
+    assert type(seq) in [list, tuple]
+    shape = get_padded_shape_numpy(seq)
+    dtype = _check_dtype(seq)
+    if dtype is None:
+        if type(padding_value) is float:
+            dtype = _np.float32
+        else:
+            dtype = _np.int64
+    padded, mask = _pad_numpy(seq, padding_value=padding_value, shape=shape, dtype=dtype)
+    padded = _np.stack(padded)
+    mask = _np.stack(mask)
+    return padded, mask
+def _pad_numpy(seq, padding_value, shape, dtype, current_depth=0):
+    if type(seq) in [list, tuple]:
+        if len(seq) == 0:
+            padded = _np.full(shape[current_depth:], padding_value, dtype=dtype)
+            mask = _np.zeros(shape[current_depth:], dtype=dtype)
+            return padded, mask
+        else:
+            padded, mask = zip(*[_pad_numpy(v, padding_value=padding_value, shape=shape, dtype=dtype, current_depth=current_depth+1) for v in seq])
+            padded, mask = map(_np.stack, [padded, mask])
+            num_missing = shape[current_depth] - len(padded)
+            assert list(padded.shape[1:]) == shape[current_depth+1:]
+            if num_missing > 0:
+                padded = _np.pad(padded, [[0, num_missing]] + [[0,0] for _ in range(len(shape)-current_depth-1)], mode="constant", constant_values=padding_value)
+                mask = _np.pad(mask, [[0, num_missing]] + [[0,0] for _ in range(len(shape)-current_depth-1)], mode="constant", constant_values=0)
+            return padded, mask
+    else:
+        assert type(seq) is _np.ndarray
+        assert len(seq.shape) == (len(shape)-current_depth)
+        padded = _np.pad(seq, [[0,dest_size-src_size] for src_size, dest_size in zip(seq.shape, shape[current_depth:])], mode="constant", constant_values=padding_value)
+        mask = _np.pad(_np.ones_like(seq), [[0,dest_size-src_size] for src_size, dest_size in zip(seq.shape, shape[current_depth:])], mode="constant", constant_values=0)
+        return padded, mask

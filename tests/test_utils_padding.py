@@ -1,6 +1,7 @@
 import unittest
 
 from baseline.utils import padding as P
+import numpy as np
 
 class PadTestCase(unittest.TestCase):
     def setUp(self):
@@ -59,5 +60,47 @@ class PadTestCase(unittest.TestCase):
             padded, mask = P.pad(cv, padding_value=p)
             self.assertEqual(padded, cp)
             self.assertEqual(mask, cm)
+
+    def convert_all_numpy_to_all_list(self, structure):
+        if type(structure) in [tuple, list]:
+            return [self.convert_all_numpy_to_all_list(val) for val in structure]
+        else:
+            assert type(structure) is np.ndarray, structure
+            return structure.tolist()
+    def test_convert_all_numpy_to_all_list(self):
+        seq = [[1, 2], [3,4,5,6], [7]]
+        seq_n = [np.array([1, 2]), np.array([3,4,5,6]), np.array([7])]
+        self.assertEqual(seq, self.convert_all_numpy_to_all_list(seq_n))
+    def compare_padded_numpy_to_padded_lists(self, seq_n, padding_value):
+        seq = self.convert_all_numpy_to_all_list(seq_n)
+
+        shape = P.get_padded_shape(seq)
+        shape_n = P.get_padded_shape_numpy(seq_n)
+        self.assertEqual(shape, shape_n)
+
+        padded, mask = P.pad(seq, padding_value=padding_value)
+        padded_n, mask_n = P.pad_numpy(seq_n, padding_value=padding_value)
+        self.assertTrue((np.array(padded) == padded_n).all())
+        self.assertTrue((np.array(mask) == mask_n).all())
+
+    def test_n1(self):
+        seq_n = [np.array([1, 2]), np.array([3,4,5,6]), np.array([7])]
+        self.compare_padded_numpy_to_padded_lists(seq_n, padding_value=-1)
+
+    def test_n2(self):
+        seq_n = [np.array([[1, 2]]), [np.array([3,4,5]),np.array([6])], [[]]]
+        self.compare_padded_numpy_to_padded_lists(seq_n, padding_value=0)
+
+    def test_n2_2(self):
+        seq_n = [np.array([[1, 2]]), [np.array([3,4,5]),np.array([6])], [np.array([], dtype=np.int64)]]
+        self.compare_padded_numpy_to_padded_lists(seq_n, padding_value=-1)
+
+    def test_n3(self):
+        seq_n = [[np.array([1, 2])], [np.array([3,4,5]),np.array([6])], []]
+        self.compare_padded_numpy_to_padded_lists(seq_n, padding_value=-1)
+
+    def test_n4(self):
+        seq_n = [[np.array([[1, 2, 3], [4,5,6]])], [np.array([[11,12,13]]),np.array([[21]])], []]
+        self.compare_padded_numpy_to_padded_lists(seq_n, padding_value=-1)
 
 
