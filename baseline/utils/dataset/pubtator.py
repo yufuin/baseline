@@ -14,6 +14,8 @@ class TableRow:
 
     def __str__(self):
         return str(self.row_values)
+    def __repr__(self):
+        return repr(dict(self))
 
     def keys(self):
         return self._table.keys()
@@ -93,7 +95,7 @@ def _format_doc(doc:dict):
     out["ents"] = Table(doc["ents"])
     return out
 
-def load_pubtator_file(file, explode_entity:bool=True, entity_sep:str=";"):
+def load_pubtator(file, explode_entity:bool=True, entity_sep:str=";"):
     docs = list()
     passed_ids = set()
 
@@ -152,3 +154,15 @@ def load_pubtator_file(file, explode_entity:bool=True, entity_sep:str=";"):
 
     return docs
 
+def save_as_pubtator(docs:List[dict], file):
+    for doc in docs:
+        keys = set(doc.keys())
+        assert "id" in keys, keys
+        id_ = doc["id"]
+        text_keys = sorted(keys - {"ents", "id"}, key=lambda x: {"t":(0,), "a":(1,)}.get(x, (2,x)))
+        for text_key in text_keys:
+            print(f'{id_}|{text_key}|{doc[text_key]}', file=file)
+        if "ents" in keys:
+            for ent in doc["ents"]:
+                print("\t".join(map(str, [id_, ent["start"], ent["end"], ent["surface"], ent["type"], ent["entity"]])), file=file)
+        print(file=file)
