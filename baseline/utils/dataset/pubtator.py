@@ -96,6 +96,16 @@ def _format_doc(doc:dict):
     return out
 
 def load_pubtator(file, explode_entity:bool=True, entity_sep:str=";"):
+    """
+    output: List[dict]
+        output[i]: dict (keys=["id", "t", "a", "ents"])
+            output[i]["id"]: str
+            output[i]["t"]: str
+            output[i]["a"]: str
+            output[i]["ents"]: Table (list-like object)
+                output[i]["ents"][i]: TableRow (dict-like object. keys=["start", "end", "surface", "type", "entity"])
+    """
+
     docs = list()
     passed_ids = set()
 
