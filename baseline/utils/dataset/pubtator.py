@@ -164,7 +164,7 @@ def load_pubtator(file, explode_entity:bool=True, entity_sep:str=";"):
 
     return docs
 
-def save_as_pubtator(docs:List[dict], file):
+def save_as_pubtator(docs:_List[dict], file):
     for doc in docs:
         keys = set(doc.keys())
         assert "id" in keys, keys
