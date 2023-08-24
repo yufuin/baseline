@@ -2,6 +2,8 @@ import unittest
 import json
 import dataclasses
 
+import pydantic
+
 import numpy as np
 import transformers
 
@@ -9,30 +11,27 @@ import baseline.utils.dataset.ner as ner
 
 class NERSpanTestCase(unittest.TestCase):
     def test_load_from_dict(self):
-        span = ner.NERSpan(3, 7, 2, "foo")
-        dumped = json.dumps(dataclasses.asdict(span))
-        self.assertEqual(span, ner.NERSpan.load_from_dict(json.loads(dumped)))
+        span = ner.NERSpan(start=3, end=7, label=2, id="foo")
+        dumped = span.model_dump_json()
+        self.assertEqual(span, ner.NERSpan.model_validate_json(dumped))
 
     def test_check_some(self):
-        span1 = ner.NERSpan(3, 7, 0)
-        span1.check_some()
+        span1 = ner.NERSpan(start=3, end=7, label=0)
 
-        span2 = ner.NERSpan(7, 3, 0)
-        with self.assertRaises(AssertionError):
-            span2.check_some()
+        with self.assertRaises(pydantic.ValidationError):
+            span2 = ner.NERSpan(start=7, end=3, label=0)
 
-        span3 = ner.NERSpan(7, 7, 0)
-        with self.assertRaises(AssertionError):
-            span3.check_some()
+        with self.assertRaises(pydantic.ValidationError):
+            span3 = ner.NERSpan(start=7, end=7, label=0)
 
     def test_set(self):
         span_set1 = {
-            ner.NERSpan(2, 5, 0, "foo"),
-            ner.NERSpan(3, 8, 1, "bar")
+            ner.NERSpan(start=2, end=5, label=0, id="foo"),
+            ner.NERSpan(start=3, end=8, label=1, id="bar")
         }
         span_set2 = {
-            ner.NERSpan(2, 5, 0, "piyo"),
-            ner.NERSpan(3, 8, 1, "piyopiyo")
+            ner.NERSpan(start=2, end=5, label=0, id="piyo"),
+            ner.NERSpan(start=3, end=8, label=1, id="piyopiyo")
         }
         self.assertNotEqual(span_set1, span_set2)
 
@@ -41,15 +40,15 @@ class NERSpanTestCase(unittest.TestCase):
         self.assertEqual(span_set1_without_id, span_set2_without_id)
 
         span_set3 = {
-            ner.NERSpan(2, 5, 0),
-            ner.NERSpan(3, 8, 1)
+            ner.NERSpan(start=2, end=5, label=0),
+            ner.NERSpan(start=3, end=8, label=1)
         }
         self.assertEqual(span_set1_without_id, span_set3)
 
         span_set4 = {
-            ner.NERSpan(2, 5, 0),
-            ner.NERSpan(3, 8, 1),
-            ner.NERSpan(24, 42, 1)
+            ner.NERSpan(start=2, end=5, label=0),
+            ner.NERSpan(start=3, end=8, label=1),
+            ner.NERSpan(start=24, end=42, label=1)
         }
         self.assertNotEqual(span_set1_without_id, span_set4)
 
@@ -67,7 +66,7 @@ class NERInstanceTestCase(unittest.TestCase):
         # safe instance
         instance = ner.NERInstance.build(
             text = "This is an example.",
-            spans = [[0,4, 0, "first-span:class_0"], [5,7, 1, "second-span:class_1"], (8,18, 0, "third-span:class_0")],
+            spans = [{"start":0,"end":4, "label":0, "id":"first-span:class_0"}, {"start":5,"end":7, "label":1, "id":"second-span:class_1"}, {"start":8,"end":18, "label":0, "id":"third-span:class_0"}],
             **otherargs
         )
         return instance
@@ -75,7 +74,7 @@ class NERInstanceTestCase(unittest.TestCase):
         # unsafe instance. spans begin/end in the middle of the word.
         instance = ner.NERInstance.build(
             text = "this is another example.",
-            spans = [[1,4, 0, 't"his"'], [6,14, 1, 'i"s anothe"r'], (16,22, 0, '"exampl"e')],
+            spans = [{"start":1,"end":4, "label":0, "id":'t"his"'}, {"start":6,"end":14, "label":1, "id":'i"s anothe"r'}, {"start":16,"end":22, "label":0, "id":'"exampl"e'}],
             **otherargs
         )
         return instance
@@ -83,28 +82,31 @@ class NERInstanceTestCase(unittest.TestCase):
         # unsafe instance. spans begin/end on the blanks.
         instance = ner.NERInstance.build(
             text = "this   has so  many   blanks.",
-            spans = [[7,19, 0, 'has so  many'], [4,21,0, '   "has so  many"  ']],
+            spans = [{"start":7,"end":19, "label":0, "id":'has so  many'}, {"start":4,"end":21, "label":0, "id":'   "has so  many"  '}],
             **otherargs
         )
         return instance
     def build_very_long_instance(self, **otherargs) -> ner.NERInstance:
         instance = ner.NERInstance.build(
             text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
-            spans = [[9,9+14, 0, "very long text"], [88,88+10, 3, "the bert model"], (116,116+9, 2, "the input")],
+            spans = [{"start":9,"end":9+14, "label":0, "id":"very long text"}, {"start":88,"end":88+10, "label":3, "id":"the bert model"}, {"start":116,"end":116+9, "label":2, "id":"the input"}],
             **otherargs
         )
         return instance
 
     def test_build_and_load(self):
         instance = self.build_basic_instance()
-        dumped1 = json.dumps(dataclasses.asdict(instance))
-        loaded1 = ner.NERInstance.load_from_dict(json.loads(dumped1))
-        self.assertEqual(instance, loaded1)
+        dumped1_1 = instance.model_dump()
+        loaded1_1 = ner.NERInstance.model_validate(dumped1_1)
+        self.assertEqual(instance, loaded1_1)
+        dumped1_2 = instance.model_dump_json()
+        loaded1_2 = ner.NERInstance.model_validate_json(dumped1_2)
+        self.assertEqual(instance, loaded1_2)
 
         instance.encode_(tokenizer=self.tokenizer)
-        dumped2 = json.dumps(dataclasses.asdict(instance))
-        loaded2 = ner.NERInstance.load_from_dict(json.loads(dumped2))
-        self.assertNotEqual(instance, loaded1)
+        dumped2 = instance.model_dump_json()
+        loaded2 = ner.NERInstance.model_validate_json(dumped2)
+        self.assertNotEqual(instance, loaded1_1)
         self.assertEqual(instance, loaded2)
 
     def test_encode(self):
@@ -117,8 +119,7 @@ class NERInstanceTestCase(unittest.TestCase):
         instance1_by_build = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=True)
         self.assertEqual(instance1.input_ids, instance1_by_build.input_ids)
         self.assertEqual(instance1.token_spans, instance1_by_build.token_spans)
-        self.assertEqual(instance1.offset_mapping_start, instance1_by_build.offset_mapping_start)
-        self.assertEqual(instance1.offset_mapping_end, instance1_by_build.offset_mapping_end)
+        self.assertEqual(instance1.offset_mapping, instance1_by_build.offset_mapping)
 
         instance1_nonfuzzy = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=False)
         self.assertIsNot(instance1, instance1_nonfuzzy)
@@ -150,10 +151,9 @@ class NERInstanceTestCase(unittest.TestCase):
         instance1_without_sp = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE)
         self.assertEqual(len(instance1.input_ids)-2, len(instance1_without_sp.input_ids))
         self.assertEqual(instance1.input_ids[1:-1], instance1_without_sp.input_ids)
-        self.assertEqual(len(instance1.input_ids), len(instance1.offset_mapping_start))
-        self.assertEqual(len(instance1.input_ids), len(instance1.offset_mapping_end))
+        self.assertEqual(len(instance1.input_ids), len(instance1.offset_mapping))
         self.assertEqual(instance1.input_ids, [self.tokenizer.bos_token_id] + instance1_without_sp.input_ids + [self.tokenizer.eos_token_id])
-        self.assertEqual([dataclasses.replace(span, s=span.s-1, e=span.e-1) for span in instance1.token_spans], instance1_without_sp.token_spans)
+        self.assertEqual([span.model_copy(update={"start":span.start-1, "end":span.end-1}) for span in instance1.token_spans], instance1_without_sp.token_spans)
 
         non_truncated_instance1_by_arg_False = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=False)
         self.assertEqual(instance1.input_ids, non_truncated_instance1_by_arg_False.input_ids)
@@ -168,8 +168,7 @@ class NERInstanceTestCase(unittest.TestCase):
         self.assertNotEqual(instance1_without_sp.input_ids, instance1_forced_with_sp.input_ids)
         self.assertEqual(instance1.input_ids, instance1_forced_with_sp.input_ids)
         self.assertEqual(instance1.token_spans, instance1_forced_with_sp.token_spans)
-        self.assertEqual(instance1.offset_mapping_start, instance1_forced_with_sp.offset_mapping_start)
-        self.assertEqual(instance1.offset_mapping_end, instance1_forced_with_sp.offset_mapping_end)
+        self.assertEqual(instance1.offset_mapping, instance1_forced_with_sp.offset_mapping)
 
         # truncate
         with self.assertRaises(AssertionError):
@@ -244,9 +243,9 @@ class NERInstanceTestCase(unittest.TestCase):
 
     def test_sequence_label(self):
         instance1 = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True)
-        num_classes = max(span.l for span in instance1.spans) + 1
+        num_classes = max(span.label for span in instance1.spans) + 1
         ref_spans1 = {span.without_id() for span in instance1.token_spans}
-        ref_spans1_without_class = {dataclasses.replace(span, l=0) for span in ref_spans1}
+        ref_spans1_without_class = {span.model_copy(update={"label":0}) for span in ref_spans1}
         merged_ref_spans1_without_class = {span for span in ner.merge_spans(list(ref_spans1_without_class))}
 
         recovered_single_label_bilou_spans = ner.convert_sequence_label_to_spans(instance1.get_sequence_label(tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL), tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
@@ -300,7 +299,7 @@ class NERInstanceTestCase(unittest.TestCase):
         decoded3 = ner.viterbi_decode(logits1, tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL)
         decoded3_as_span = ner.viterbi_decode(logits1, tagging_scheme=ner.NERTaggingScheme.BILOU, label_scheme=ner.NERLabelScheme.SINGLE_LABEL, as_spans=True)
         self.assertEqual([1,3,0,5,7,8,0], list(decoded3))
-        self.assertEqual({ner.NERSpan(0,2,0), ner.NERSpan(3,5,1), ner.NERSpan(5,6,1)}, set(decoded3_as_span))
+        self.assertEqual({ner.NERSpan(start=0,end=2,label=0), ner.NERSpan(start=3,end=5,label=1), ner.NERSpan(start=5,end=6,label=1)}, set(decoded3_as_span))
 
         def dig(state:list, step, current_total_logit):
             if step == len(logits1):
@@ -344,39 +343,39 @@ class NERInstanceTestCase(unittest.TestCase):
             if max_code1[i] == "O":
                 pass
             elif max_code1[i][0] == "U":
-                max_span1.add(ner.NERSpan(i,i+1,int(max_code1[i][1:])))
+                max_span1.add(ner.NERSpan(start=i,end=i+1,label=int(max_code1[i][1:])))
             elif max_code1[i][0] == "B":
                 start = i
                 while True:
                     i += 1
                     if max_code1[i][0] == "L":
                         break
-                max_span1.add(ner.NERSpan(start,i+1,int(max_code1[i][1:])))
+                max_span1.add(ner.NERSpan(start=start,end=i+1,label=int(max_code1[i][1:])))
             i += 1
             continue
         self.assertEqual(max_span1, set(decoded3_as_span))
 
     def test_merge_spans(self):
         ref_spans = {
-            ner.NERSpan(3,4, 99),
-            ner.NERSpan(10,15, 101),
-            ner.NERSpan(18,20, 101),
-            ner.NERSpan(85,90, 100)
+            ner.NERSpan(start=3,end=4, label=99),
+            ner.NERSpan(start=10,end=15, label=101),
+            ner.NERSpan(start=18,end=20, label=101),
+            ner.NERSpan(start=85,end=90, label=100)
         }
         token_level_spans = [
-            ner.NERSpan(s=3, e=4, l=99, id=None),
-            ner.NERSpan(s=85, e=86, l=100, id=None),
-            ner.NERSpan(s=86, e=87, l=100, id=None),
-            ner.NERSpan(s=87, e=88, l=100, id=None),
-            ner.NERSpan(s=88, e=89, l=100, id=None),
-            ner.NERSpan(s=89, e=90, l=100, id=None),
-            ner.NERSpan(s=10, e=11, l=101, id=None),
-            ner.NERSpan(s=11, e=12, l=101, id=None),
-            ner.NERSpan(s=12, e=13, l=101, id=None),
-            ner.NERSpan(s=13, e=14, l=101, id=None),
-            ner.NERSpan(s=14, e=15, l=101, id=None),
-            ner.NERSpan(s=18, e=19, l=101, id=None),
-            ner.NERSpan(s=19, e=20, l=101, id=None),
+            ner.NERSpan(start=3, end=4, label=99, id=None),
+            ner.NERSpan(start=85, end=86, label=100, id=None),
+            ner.NERSpan(start=86, end=87, label=100, id=None),
+            ner.NERSpan(start=87, end=88, label=100, id=None),
+            ner.NERSpan(start=88, end=89, label=100, id=None),
+            ner.NERSpan(start=89, end=90, label=100, id=None),
+            ner.NERSpan(start=10, end=11, label=101, id=None),
+            ner.NERSpan(start=11, end=12, label=101, id=None),
+            ner.NERSpan(start=12, end=13, label=101, id=None),
+            ner.NERSpan(start=13, end=14, label=101, id=None),
+            ner.NERSpan(start=14, end=15, label=101, id=None),
+            ner.NERSpan(start=18, end=19, label=101, id=None),
+            ner.NERSpan(start=19, end=20, label=101, id=None),
         ]
         rng = np.random.RandomState(123)
         rng.shuffle(token_level_spans)

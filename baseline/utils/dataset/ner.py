@@ -13,12 +13,12 @@ _TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
 
 import re as _re
 import math as _math
-import copy as _copy
 import collections as _collections
 import dataclasses as _D
 import enum as _enum
 from typing import List as _List, Optional as _Optional, Tuple as _Tuple, Union as _Union, Any as _Any
 
+import pydantic
 import numpy as _numpy
 import transformers as _transformers
 
@@ -30,34 +30,26 @@ class TokenizerInterface:
         raise NotImplementedError("TokenizerInterface.build_inputs_with_special_tokens")
 
 # %%
-@_D.dataclass(frozen=True, eq=True)
-class NERSpan:
-    s: int
-    e: int
-    l: int
-    id: _Any = None
-    @classmethod
-    def load_from_dict(cls, dumped):
-        return cls(**dumped)
-    @property
-    def start(self):
-        return self.s
-    @property
-    def end(self):
-        return self.e
-    @property
-    def label(self):
-        return self.l
-    def check_some(self):
-        assert isinstance(self.s, int)
-        assert isinstance(self.e, int)
-        assert self.s < self.e
-        assert isinstance(self.l, int)
-        return self
-    def without_id(self):
-        return _D.replace(self, id=None)
+class NERSpan(pydantic.BaseModel):
+    start: int
+    end: int
+    label: int
+    id: _Optional[str] = None
 
-NERSpanAsList = _Union[_Tuple[int,int,int], _Tuple[int,int,int,_Any]]
+    model_config = pydantic.ConfigDict(
+        validate_assignment=True,
+        frozen=True,
+    )
+
+    @pydantic.model_validator(mode="after")
+    def check_some(self):
+        assert self.start < self.end, f'self.start must be less than self.end, but ({self.start}, {self.end})'
+        return self
+
+    def without_id(self):
+        return self.model_copy(update={"id":None})
+
+
 
 class NERTaggingScheme(str, _enum.Enum):
     BILOU = "bilou"
@@ -81,32 +73,33 @@ class NERTruncationScheme(str, _enum.Enum):
     TRUNCATE = "truncate"
     SPLIT = "split"
 
-@_D.dataclass
-class NERInstance:
+class NERInstance(pydantic.BaseModel):
     text: str
     spans: _List[NERSpan]
     id: _Any = None
 
-    input_ids: _Optional[_List[int]] = None
-    offset_mapping_start: _Optional[_List[int]] = None
-    offset_mapping_end: _Optional[_List[int]] = None
-    is_added_special_tokens: bool = False
+    token_ids: _Optional[_List[int]] = None
     token_spans: _Optional[_List[NERSpan]] = None
+    offset_mapping: _Optional[_List[_Tuple[int,int]]] = None
+    has_added_special_tokens: bool = False
 
     metadata: dict = _D.field(default_factory=dict)
     note: _Any = None
 
-    @classmethod
-    def load_from_dict(cls, dumped):
-        dumped = dict(dumped)
-        dumped["spans"] = [NERSpan.load_from_dict(dic_span) for dic_span in dumped["spans"]]
-        if isinstance(dumped["token_spans"], list):
-            dumped["token_spans"] = [NERSpan.load_from_dict(dic_span) for dic_span in dumped["token_spans"]]
-        return cls(**dumped)
+    model_config = pydantic.ConfigDict(
+        validate_assignment=True,
+    )
+
+    @property
+    def input_ids(self) -> _Optional[_List[int]]:
+        return self.token_ids
+    @input_ids.setter
+    def input_ids(self, new_input_ids:_Optional[_List[int]]) -> None:
+        self.token_ids = new_input_ids
 
     @classmethod
-    def build(cls, text:str, spans:_List[_Union[NERSpan,NERSpanAsList]], id:_Any=None, *, check_some:bool=True, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
-        spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
+    def build(cls, text:str, spans:_List[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+        spans = [NERSpan.model_validate(span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
@@ -115,24 +108,11 @@ class NERInstance:
                 if value is not None:
                     encode_func_args[key] = value
             out = out.encode_(tokenizer, **encode_func_args)
-        if check_some:
-            if type(out) in [list, tuple]:
-                [each_out.check_some() for each_out in out]
-            else:
-                out.check_some()
         return out
-
-    def check_some(self):
-        for span in self.spans:
-            span.check_some()
-        if self.token_spans is not None:
-            for span in self.token_spans:
-                span.check_some()
-        return self
 
     def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
         # reset
-        self.is_added_special_tokens = False
+        self.has_added_special_tokens = False
 
         if isinstance(truncation, bool):
             if truncation:
@@ -177,39 +157,38 @@ class NERInstance:
             raise ValueError(truncation)
 
         enc = tokenizer(self.text, return_offsets_mapping=True, **tokenizer_other_kwargs)
-        self.input_ids = enc["input_ids"]
-        self.offset_mapping_start = [se[0] for se in enc["offset_mapping"]]
-        self.offset_mapping_end = [se[1] for se in enc["offset_mapping"]]
+        self.token_ids = enc["input_ids"]
+        self.offset_mapping = enc["offset_mapping"]
 
-        start_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_start)}
-        end_to_token_id = {t:i for i,t in enumerate(self.offset_mapping_end)}
+        start_to_token_id = {start:i for i,[start,end] in enumerate(self.offset_mapping)}
+        end_to_token_id = {end:i for i,[start,end] in enumerate(self.offset_mapping)}
 
         token_spans = list()
-        offset_mapping_end_with_sentinel = [0] + list(self.offset_mapping_end)
-        offset_mapping_start_with_sentinel = list(self.offset_mapping_start) + [self.offset_mapping_end[-1]]
+        offset_mapping_start_with_sentinel = [start for start,_ in self.offset_mapping] + [self.offset_mapping[-1][1]]
+        offset_mapping_end_with_sentinel = [0] + [end for _,end in self.offset_mapping]
         for span in self.spans:
             if fuzzy:
-                for st in range(len(self.input_ids)):
-                    if offset_mapping_end_with_sentinel[st] <= span.s < offset_mapping_end_with_sentinel[st+1]:
+                for st in range(len(self.token_ids)):
+                    if offset_mapping_end_with_sentinel[st] <= span.start < offset_mapping_end_with_sentinel[st+1]:
                         break
                 else:
                     continue
 
-                for et_minus_one in range(max(0,st-1), len(self.input_ids)):
-                    if offset_mapping_start_with_sentinel[et_minus_one] < span.e <= offset_mapping_start_with_sentinel[et_minus_one+1]:
+                for et_minus_one in range(max(0,st-1), len(self.token_ids)):
+                    if offset_mapping_start_with_sentinel[et_minus_one] < span.end <= offset_mapping_start_with_sentinel[et_minus_one+1]:
                         break
                 else:
                     # continue
                     # raise ValueError(self)
                     pass
 
-                token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
+                token_spans.append(NERSpan(start=st,end=et_minus_one+1, label=span.label, id=span.id))
 
             else:
-                st = start_to_token_id.get(span.s, None)
-                et_minus_one = end_to_token_id.get(span.e, None)
+                st = start_to_token_id.get(span.start, None)
+                et_minus_one = end_to_token_id.get(span.end, None)
                 if (st is not None) and (et_minus_one is not None):
-                    token_spans.append(NERSpan(s=st,e=et_minus_one+1, l=span.l, id=span.id))
+                    token_spans.append(NERSpan(start=st,end=et_minus_one+1, label=span.label, id=span.id))
         self.token_spans = token_spans
 
         if truncation == NERTruncationScheme.SPLIT:
@@ -227,120 +206,114 @@ class NERInstance:
             return self
 
     def with_special_tokens_(self, tokenizer:TokenizerInterface):
-        assert not self.is_added_special_tokens, f'already special tokens are added. id:{self.id}'
+        assert not self.has_added_special_tokens, f'already special tokens are added. id:{self.id}'
 
-        token_len_wo_sp_tokens = len(self.input_ids)
-        new_input_ids = tokenizer.build_inputs_with_special_tokens(self.input_ids)
+        token_len_wo_sp_tokens = len(self.token_ids)
+        new_input_ids = tokenizer.build_inputs_with_special_tokens(self.token_ids)
         assert len(new_input_ids) == token_len_wo_sp_tokens + _TWO_BECAUSE_OF_SPECIAL_TOKEN
 
-        new_offset_mapping_start, new_offset_mapping_end, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2, num_backward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2)
+        new_offset_mapping, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2, num_backward_padding=_TWO_BECAUSE_OF_SPECIAL_TOKEN//2)
 
-        self.input_ids = new_input_ids
-        self.offset_mapping_start = new_offset_mapping_start
-        self.offset_mapping_end = new_offset_mapping_end
+        self.token_ids = new_input_ids
+        self.offset_mapping = new_offset_mapping
         self.token_spans = new_token_spans
-        self.is_added_special_tokens = True
+        self.has_added_special_tokens = True
         return self
 
     def with_special_tokens(self, tokenizer:TokenizerInterface):
-        out = _copy.deepcopy(self)
+        out = self.model_copy(deep=True)
         return out.with_special_tokens_(tokenizer=tokenizer)
 
     def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int, restrict_gold_class:_Optional[int]=None):
-        assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
+        assert not self.has_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
-        new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
+        new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.token_ids)
         exceeded_len = max(0, len(new_input_ids) - max_length)
         if exceeded_len > 0:
             self._truncate_back_tokens_(size=exceeded_len)
-            new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.input_ids)
+            new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.token_ids)
 
-        assert (self.input_ids[-1] == new_input_ids[-2]) and (self.input_ids[-1] != new_input_ids[-1]) # ... SOME_TOKEN [SEP]
+        assert (self.token_ids[-1] == new_input_ids[-2]) and (self.token_ids[-1] != new_input_ids[-1]) # ... SOME_TOKEN [SEP]
         num_backward_padding = 1
-        num_forward_padding = len(new_input_ids) - num_backward_padding - len(self.input_ids)
-        new_offset_mapping_start, new_offset_mapping_end, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=num_forward_padding, num_backward_padding=num_backward_padding)
-        assert len(new_offset_mapping_start) == len(new_input_ids)
+        num_forward_padding = len(new_input_ids) - num_backward_padding - len(self.token_ids)
+        new_offset_mapping, new_token_spans = self._padded_mappings_and_token_spans(num_forward_padding=num_forward_padding, num_backward_padding=num_backward_padding)
+        assert len(new_offset_mapping) == len(new_input_ids)
 
-        self.input_ids = new_input_ids
-        self.offset_mapping_start = new_offset_mapping_start
-        self.offset_mapping_end = new_offset_mapping_end
+        self.token_ids = new_input_ids
+        self.offset_mapping = new_offset_mapping
         self.token_spans = new_token_spans
-        self.is_added_special_tokens = True
+        self.has_added_special_tokens = True
         self.metadata["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
 
         if restrict_gold_class is not None:
-            self.spans = [span for span in self.spans if span.l == restrict_gold_class]
-            self.token_spans = [token_span for token_span in self.token_spans if token_span.l == restrict_gold_class]
+            self.spans = [span for span in self.spans if span.label == restrict_gold_class]
+            self.token_spans = [token_span for token_span in self.token_spans if token_span.label == restrict_gold_class]
 
         return self
 
     def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:_List[int], max_length:int, restrict_gold_class:_Optional[int]=None):
-        out = _copy.deepcopy(self)
+        out = self.model_copy(deep=True)
         return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length, restrict_gold_class=restrict_gold_class)
 
     def _split_with_size(self, max_length, stride):
-        assert not self.is_added_special_tokens, f'must be without special tokens. id:{self.id}'
+        assert not self.has_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
-        num_splits = 1 + _math.ceil(max(0, len(self.input_ids) - max_length) / stride)
+        num_splits = 1 + _math.ceil(max(0, len(self.token_ids) - max_length) / stride)
 
         if num_splits == 1:
-            outs = [_copy.deepcopy(self)]
+            outs = [self.model_copy(deep=True)]
             outs[0].metadata["split"] = f's0/{num_splits}|c0|t0'
         else:
-            outs = [_copy.deepcopy(self) for _ in range(num_splits)]
+            outs = [self.model_copy(deep=True) for _ in range(num_splits)]
             for split_idx, out in enumerate(outs):
                 token_start = stride * split_idx
                 token_end = token_start + max_length
-                out.input_ids = out.input_ids[token_start:token_end]
-                out.offset_mapping_start = out.offset_mapping_start[token_start:token_end]
-                out.offset_mapping_end = out.offset_mapping_end[token_start:token_end]
+                out.token_ids = out.token_ids[token_start:token_end]
+                out.offset_mapping = out.offset_mapping[token_start:token_end]
 
-                char_start = out.offset_mapping_start[0]
-                char_end = out.offset_mapping_end[-1]
+                char_start,_ = out.offset_mapping[0]
+                _,char_end = out.offset_mapping[-1]
                 out.text = out.text[char_start:char_end]
 
-                out.offset_mapping_start = [p - char_start for p in out.offset_mapping_start]
-                out.offset_mapping_end = [p - char_start for p in out.offset_mapping_end]
+                out.offset_mapping = [(start-char_start, end-char_start) for [start,end] in out.offset_mapping]
 
-                out.spans = [span for span in out.spans if (char_start<=span.s) and (span.e <= char_end)]
-                out.spans = [_D.replace(span, s=span.s-char_start, e=span.e-char_start) for span in out.spans]
+                out.spans = [span for span in out.spans if (char_start<=span.start) and (span.end <= char_end)]
+                out.spans = [span.model_copy(update={"start":span.start-char_start, "end":span.end-char_start}) for span in out.spans]
 
-                out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.s) and (token_span.e <= token_end)]
-                out.token_spans = [_D.replace(token_span, s=token_span.s-token_start, e=token_span.e-token_start) for token_span in out.token_spans]
+                out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.start) and (token_span.end <= token_end)]
+                out.token_spans = [token_span.model_copy(update={"start":token_span.start-token_start, "end":token_span.end-token_start}) for token_span in out.token_spans]
 
                 out.metadata["split"] = f's{split_idx}/{num_splits}|c{char_start}|t{token_start}'
         return outs
 
     def _padded_mappings_and_token_spans(self, num_forward_padding:int, num_backward_padding:int):
-        last_position = self.offset_mapping_end[-1]
-        padded_offset_mapping_start = [0 for _ in range(num_forward_padding)] + self.offset_mapping_start + [last_position for _ in range(num_backward_padding)]
-        padded_offset_mapping_end = [0 for _ in range(num_forward_padding)] + self.offset_mapping_end + [last_position for _ in range(num_backward_padding)]
+        _,last_position = self.offset_mapping[-1]
+        padded_offset_mapping = [(0,0) for _ in range(num_forward_padding)] + self.offset_mapping + [(last_position,last_position) for _ in range(num_backward_padding)]
 
         padded_token_spans = list()
         for span in self.token_spans:
-            new_s = span.s + num_forward_padding
-            new_e = span.e + num_forward_padding
-            copied_span = _D.replace(span, s=new_s, e=new_e)
+            new_s = span.start + num_forward_padding
+            new_e = span.end + num_forward_padding
+            copied_span = span.model_copy(update={"start":new_s, "end":new_e})
             padded_token_spans.append(copied_span)
 
-        return padded_offset_mapping_start, padded_offset_mapping_end, padded_token_spans
+        return padded_offset_mapping, padded_token_spans
 
     def _truncate_back_tokens_(self, size:int):
-        assert not self.is_added_special_tokens, 'cannot truncate after special tokens added. id:{self.id}'
+        assert not self.has_added_special_tokens, 'cannot truncate after special tokens added. id:{self.id}'
         assert size >= 0
-        self.input_ids = self.input_ids[:-size]
-        self.offset_mapping_start = self.offset_mapping_start[:-size]
-        self.offset_mapping_end = self.offset_mapping_end[:-size]
+        self.token_ids = self.token_ids[:-size]
+        self.offset_mapping = self.offset_mapping[:-size]
 
-        new_token_len = len(self.input_ids)
+        new_token_len = len(self.token_ids)
         new_token_spans = list()
         for span in self.token_spans:
-            # if span.e > new_token_len:
+            # if span.end > new_token_len:
             #     continue
-            if span.s >= new_token_len:
+            if span.start >= new_token_len:
                 continue
-            if span.e > new_token_len:
-                span = _D.replace(span, e=new_token_len)
+            if span.end > new_token_len:
+                span = span.model_copy(update={"end":new_token_len})
 
             new_token_spans.append(span)
 
@@ -393,12 +366,12 @@ class NERInstance:
         if restrict_gold_class is None:
             target_spans = self.token_spans
         else:
-            target_spans = [span for span in self.token_spans if span.l == restrict_gold_class]
+            target_spans = [span for span in self.token_spans if span.label == restrict_gold_class]
 
         if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
-            out = [int(NERSpanTag.O) for _ in range(len(self.input_ids))]
+            out = [int(NERSpanTag.O) for _ in range(len(self.token_ids))]
         elif label_scheme == NERLabelScheme.MULTI_LABEL:
-            transposed_out = [[int(NERSpanTag.O) for _ in range(len(self.input_ids))] for _ in range(num_class_without_negative)]
+            transposed_out = [[int(NERSpanTag.O) for _ in range(len(self.token_ids))] for _ in range(num_class_without_negative)]
         else:
             raise ValueError(label_scheme)
 
@@ -406,63 +379,63 @@ class NERInstance:
             if tagging_scheme == NERTaggingScheme.BILOU:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
-                    class_offset = span.l * 4 # 4 <- len({B, I, L, U})
+                    class_offset = span.label * 4 # 4 <- len({B, I, L, U})
                 elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MULTI_LABEL:
-                    target_out = transposed_out[span.l]
+                    target_out = transposed_out[span.label]
                     class_offset = 0
                 else:
                     raise ValueError(label_scheme)
 
-                if span.s + 1 == span.e:
-                    target_out[span.s] = NERSpanTag.U + class_offset
+                if span.start + 1 == span.end:
+                    target_out[span.start] = NERSpanTag.U + class_offset
                 else:
-                    target_out[span.s] = NERSpanTag.B + class_offset
-                    target_out[span.e-1] = NERSpanTag.L + class_offset
-                    for i in range(span.s+1, span.e-1):
+                    target_out[span.start] = NERSpanTag.B + class_offset
+                    target_out[span.end-1] = NERSpanTag.L + class_offset
+                    for i in range(span.start+1, span.end-1):
                         target_out[i] = NERSpanTag.I + class_offset
 
             elif tagging_scheme == NERTaggingScheme.BIO:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
-                    class_offset = span.l * 2 # 2 <- len({B, I})
+                    class_offset = span.label * 2 # 2 <- len({B, I})
                 elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.s:span.e]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MULTI_LABEL:
-                    target_out = transposed_out[span.l]
+                    target_out = transposed_out[span.label]
                     class_offset = 0
                 else:
                     raise ValueError(label_scheme)
 
-                target_out[span.s] = NERSpanTag.B + class_offset
-                for i in range(span.s+1, span.e):
+                target_out[span.start] = NERSpanTag.B + class_offset
+                for i in range(span.start+1, span.end):
                     target_out[i] = NERSpanTag.I + class_offset
 
             elif tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     target_out = out
-                    class_offset = span.l
+                    class_offset = span.label
                 elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MULTI_LABEL:
-                    target_out = transposed_out[span.l]
+                    target_out = transposed_out[span.label]
                     class_offset = 0
                 else:
                     raise ValueError(label_scheme)
 
-                for i in range(span.s, span.e):
+                for i in range(span.start, span.end):
                     target_out[i] = 1 + class_offset
 
             else:
@@ -477,12 +450,12 @@ class NERInstance:
         if not isinstance(span, NERSpan):
             return [self.decode_token_span_to_char_span(s, strip=strip, recover_split=recover_split) for s in span]
 
-        char_start = self.offset_mapping_start[span.s]
-        if span.s == span.e:
+        char_start, _ = self.offset_mapping[span.start]
+        if span.start == span.end:
             char_end = char_start
         else:
-            char_end = self.offset_mapping_end[span.e-1]
-        out = NERSpan(s=char_start, e=char_end, l=span.l, id=span.id)
+            _,char_end = self.offset_mapping[span.end-1]
+        out = NERSpan(start=char_start, end=char_end, label=span.label, id=span.id)
 
         if strip:
             out = self.strip_char_spans(out)
@@ -494,11 +467,11 @@ class NERInstance:
         if not isinstance(span, NERSpan):
             return [self.strip_char_spans(s) for s in span]
 
-        forward_blank_span = _re.match("^\\s*", self.text[span.s:span.e]).span()
+        forward_blank_span = _re.match("^\\s*", self.text[span.start:span.end]).span()
         forward_blank_size = forward_blank_span[1] - forward_blank_span[0]
-        backward_blank_span = _re.search("\\s*$", self.text[span.s+forward_blank_size:span.e]).span()
+        backward_blank_span = _re.search("\\s*$", self.text[span.start+forward_blank_size:span.end]).span()
         backward_blank_size = backward_blank_span[1] - backward_blank_span[0]
-        out = _D.replace(span, s=span.s+forward_blank_size, e=span.e-backward_blank_size)
+        out = span.model_copy(update={"start":span.start+forward_blank_size, "end":span.end-backward_blank_size})
         return out
 
     def recover_split_offset_of_char_spans(self, span:_Union[NERSpan, _List[NERSpan]]) -> _Union[NERSpan, _List[NERSpan]]:
@@ -506,7 +479,7 @@ class NERInstance:
             return [self.recover_split_offset_of_char_spans(s) for s in span]
 
         split_offset = self.get_decoded_metadata()["split"]["char_start"]
-        out = _D.replace(span, s=span.s+split_offset, e=span.e+split_offset)
+        out = span.model_copy(update={"start":span.start+split_offset, "end":span.end+split_offset})
         return out
 
     def get_decoded_metadata(self):
@@ -528,7 +501,7 @@ class NERInstance:
 def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL) -> _List[NERSpan]:
     if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
         if tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
-            return [NERSpan(s=t,e=t+1,l=label-1) for t, label in enumerate(sequence_label) if label != 0]
+            return [NERSpan(start=t,end=t+1,label=label-1) for t, label in enumerate(sequence_label) if label != 0]
 
         elif tagging_scheme == NERTaggingScheme.BILOU:
             out = list()
@@ -540,7 +513,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert start is None
                     if start is not None:
                         _logger.warning(f'span ends without "L" at timestep {t}. treat as termination.: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         start = None
                         class_ = None
 
@@ -548,7 +521,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert start is None
                     if start is not None:
                         _logger.warning(f'span ends without "L" at timestep {t}. treat as termination.: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         # start = None
                         # class_ = None
                     start = t
@@ -564,7 +537,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert class_ == ((label-1) // 4)
                     if class_ != ((label-1) // 4):
                         _logger.warning(f'span class is incosistent at timestep {t}. treat as new beginning: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         # start = None
                         # class_ = None
                         start = t
@@ -580,13 +553,13 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert class_ == ((label-1) // 4)
                     if class_ != ((label-1) // 4):
                         _logger.warning(f'span class is incosistent at timestep {t}. treat as new beginning: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         # start = None
                         # class_ = None
                         start = t
                         class_ = (label-1) // 4
 
-                    out.append(NERSpan(s=start, e=t+1, l=class_))
+                    out.append(NERSpan(start=start, end=t+1, label=class_))
                     start = None
                     class_ = None
 
@@ -594,10 +567,10 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert start is None
                     if start is not None:
                         _logger.warning(f'span ends without "L" at timestep {t}. treat as termination.: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         start = None
                         class_ = None
-                    out.append(NERSpan(s=t, e=t+1, l=(label-1)//4))
+                    out.append(NERSpan(start=t, end=t+1, label=(label-1)//4))
 
                 else:
                     raise ValueError(label)
@@ -605,7 +578,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
             # assert start is None
             if start is not None:
                 _logger.warning(f'span ends without "L" at timestep {t+1}. treat as termination.: {sequence_label}')
-                out.append(NERSpan(s=start, e=t+1, l=class_))
+                out.append(NERSpan(start=start, end=t+1, label=class_))
                 start = None
                 class_ = None
 
@@ -619,13 +592,13 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
             for t, label in enumerate(sequence_label):
                 if label == 0: # "O"
                     if start is not None:
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         start = None
                         class_ = None
 
                 elif (label-1) % 2 == 0: # "B"
                     if start is not None:
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         # start = None
                         # class_ = None
                     start = t
@@ -641,7 +614,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     # assert class_ == ((label-1) // 2)
                     if class_ != ((label-1) // 2):
                         _logger.warning(f'span class is incosistent at timestep {t}. treat as new beginning: {sequence_label}')
-                        out.append(NERSpan(s=start, e=t, l=class_))
+                        out.append(NERSpan(start=start, end=t, label=class_))
                         # start = None
                         # class_ = None
                         start = t
@@ -651,7 +624,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
                     raise ValueError(label)
 
             if start is not None:
-                out.append(NERSpan(s=start, e=t+1, l=class_))
+                out.append(NERSpan(start=start, end=t+1, label=class_))
                 start = None
                 class_ = None
 
@@ -666,7 +639,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[_List[int],_List[_List
         for c in range(num_class):
             sequence_label_class_c = [labels[c] for labels in sequence_label]
             spans_class_c = convert_sequence_label_to_spans(sequence_label=sequence_label_class_c, tagging_scheme=tagging_scheme, label_scheme=NERLabelScheme.SPAN_ONLY)
-            outs.extend([NERSpan(s=span.s, e=span.e, l=c) for span in spans_class_c])
+            outs.extend([NERSpan(start=span.start, end=span.end, label=c) for span in spans_class_c])
         return outs
 
     else:
@@ -845,12 +818,12 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
 def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
     if len(spans) == 0:
         return list()
-    max_end = max([span.e for span in spans])
+    max_end = max([span.end for span in spans])
     zero_table = [0 for _ in range(max_end+1)]
     label_to_table = _collections.defaultdict(lambda: list(zero_table))
     for span in spans:
-        for i in range(span.s, span.e):
-            label_to_table[span.l][i] = 1
+        for i in range(span.start, span.end):
+            label_to_table[span.label][i] = 1
 
     outs = list()
     for label, table in label_to_table.items():
@@ -861,7 +834,7 @@ def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
                 while (t < max_end) and (table[t] == 1):
                     t += 1
                 end = t
-                outs.append(NERSpan(s=start,e=end,l=label))
+                outs.append(NERSpan(start=start,end=end,label=label))
                 continue
             else:
                 t += 1
@@ -876,7 +849,7 @@ if __name__ == "__main__":
     # %%
     _instance_without_sp = NERInstance.build(
         text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
-        spans = [[9,9+14, 0, "first-span:class_0:very long text"], [88,88+10, 3, "second-span:class_3:the bert model"], (116,116+9, 2, "third-span:class_2:the input")],
+        spans = [{"start":9,"end":9+14, "label":0, "id":"first-span:class_0:very long text"}, {"start":88,"end":88+10, "label":3, "id":"second-span:class_3:the bert model"}, {"start":116,"end":116+9, "label":2, "id":"third-span:class_2:the input"}],
     )
     _num_class = 4
     _instance_without_sp.encode_(tokenizer=tok, add_special_tokens=False, truncation=False)
@@ -885,7 +858,9 @@ if __name__ == "__main__":
     _multi_label_indep_gold_label = _instance_with_sp.get_sequence_label(tagging_scheme=NERTaggingScheme.TOKEN_LEVEL, label_scheme=NERLabelScheme.MULTI_LABEL, num_class_without_negative=_num_class)
     print("_instance_without_sp:", _instance_with_sp)
     print("_bilou_gold_label:", _bilou_gold_label)
+    assert _bilou_gold_label == [0, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 13, 14, 15, 0, 0, 0, 0, 9, 11, 0, 0]
     print("_multi_label_indep_gold_label:", _multi_label_indep_gold_label)
+    assert _multi_label_indep_gold_label == [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0], [1, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 1, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
 
 
     # %%
@@ -895,12 +870,12 @@ if __name__ == "__main__":
     print(_instance_with_query)
     print()
     print("label:", _gold_label_for_query)
-
+    assert _gold_label_for_query == [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 3, 0]
 
     # %%
     _instances_split_by_stride = NERInstance.build(
         text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
-        spans = [[9,9+14, 0, "first-span:class_0:very long text"], [88,88+10, 3, "second-span:class_3:the bert model"], (116,116+9, 2, "third-span:class_2:the input")],
+        spans = [{"start":9,"end":9+14, "label":0, "id":"first-span:class_0:very long text"}, {"start":88,"end":88+10, "label":3, "id":"second-span:class_3:the bert model"}, {"start":116,"end":116+9, "label":2, "id":"third-span:class_2:the input"}],
         tokenizer = tok,
         add_special_tokens=True,
         truncation = NERTruncationScheme.SPLIT,
@@ -908,6 +883,7 @@ if __name__ == "__main__":
         stride = 2,
     )
     print(type(_instances_split_by_stride), type(_instances_split_by_stride[0]), len(_instances_split_by_stride))
+    assert len(_instances_split_by_stride) == 13
 
     # %%
     # step_preds = BNER.viterbi_decode(step_logit, tagging_scheme=model_config.tagging_scheme, label_scheme=model_config.label_scheme, scalar_logit_for_independent=True, as_spans=True)
