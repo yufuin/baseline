@@ -119,31 +119,31 @@ class NERInstanceTestCase(unittest.TestCase):
 
     def test_encode(self):
         instance1 = self.build_basic_instance()
-        ret_value = instance1.encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
+        ret_value = instance1.encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MAXIMIZE)
         self.assertIs(instance1, ret_value)
         self.assertNotEqual({span.without_id() for span in instance1.spans}, {span.without_id() for span in instance1.token_spans})
         self.assertEqual({span.without_id() for span in instance1.spans}, {span.without_id() for span in instance1.decode_token_span_to_char_span(instance1.token_spans, strip=True)})
 
-        instance1_by_build = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
+        instance1_by_build = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MAXIMIZE)
         self.assertEqual(instance1.token_ids, instance1_by_build.token_ids)
         self.assertEqual(instance1.token_spans, instance1_by_build.token_spans)
         self.assertEqual(instance1.offset_mapping, instance1_by_build.offset_mapping)
         self.assertEqual(len(instance1.spans), len(instance1.token_spans))
 
-        instance1_minimized_fitting = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        instance1_minimized_fitting = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MINIMIZE)
         self.assertIsNot(instance1, instance1_minimized_fitting)
         self.assertEqual(instance1.token_ids, instance1_minimized_fitting.token_ids)
         self.assertNotEqual(instance1.token_spans, instance1_minimized_fitting.token_spans)
         self.assertNotEqual(len(instance1_minimized_fitting.spans), len(instance1_minimized_fitting.token_spans))
 
-        instance1_minimized_fitting_with_trimming = self.build_basic_instance().encode_(tokenizer=self.tokenizer_with_trimming, ignore_trim_offsets=True, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        instance1_minimized_fitting_with_trimming = self.build_basic_instance().encode_(tokenizer=self.tokenizer_with_trimming, ignore_trim_offsets=True, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MINIMIZE)
         self.assertIsNot(instance1, instance1_minimized_fitting_with_trimming)
         self.assertEqual(instance1.token_ids, instance1_minimized_fitting_with_trimming.token_ids)
         self.assertEqual(instance1.token_spans, instance1_minimized_fitting_with_trimming.token_spans)
         self.assertEqual(len(instance1_minimized_fitting_with_trimming.spans), len(instance1_minimized_fitting_with_trimming.token_spans))
 
-        instance2 = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
-        instance2_minimized_fitting = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        instance2 = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MAXIMIZE)
+        instance2_minimized_fitting = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_token_span=ner.NERSpanFittingScheme.MINIMIZE)
         self.assertIsNot(instance2, instance2_minimized_fitting)
         self.assertEqual(instance2.token_ids, instance2_minimized_fitting.token_ids)
         self.assertNotEqual(instance2.token_spans, instance2_minimized_fitting.token_spans)

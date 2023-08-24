@@ -86,6 +86,10 @@ class NERTruncationScheme(str, _enum.Enum):
     TRUNCATE = "truncate"
     SPLIT = "split"
 
+class NERSpanFittingScheme(str, _enum.Enum):
+    MAXIMIZE = "maximize"
+    MINIMIZE = "minimize"
+
 
 class NERSplitInfo(pydantic.BaseModel):
     num_splits:int
@@ -125,20 +129,20 @@ class NERInstance(pydantic.BaseModel):
     )
 
     @classmethod
-    def build(cls, text:str, spans:_List[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_to_token:_Optional[bool]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:_List[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:_Optional[NERSpanFittingScheme]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [NERSpan.model_validate(span) for span in spans]
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
-            for key in ["add_special_tokens", "truncation", "max_length", "stride", "fit_to_token", "add_split_idx_to_id", "return_non_truncated", "ignore_trim_offsets", "tokenizer_other_kwargs"]:
+            for key in ["add_special_tokens", "truncation", "max_length", "stride", "fit_token_span", "add_split_idx_to_id", "return_non_truncated", "ignore_trim_offsets", "tokenizer_other_kwargs"]:
                 value = eval(key)
                 if value is not None:
                     encode_func_args[key] = value
             out = out.encode_(tokenizer, **encode_func_args)
         return out
 
-    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_to_token:bool=True, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
+    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:NERSpanFittingScheme=NERSpanFittingScheme.MAXIMIZE, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
         assert not self.has_added_special_tokens
 
         if tokenizer.init_kwargs.get("trim_offsets", True):
@@ -203,7 +207,7 @@ class NERInstance(pydantic.BaseModel):
         offset_mapping_start_with_sentinel = [start for start,_ in self.offset_mapping] + [self.offset_mapping[-1][1]]
         offset_mapping_end_with_sentinel = [0] + [end for _,end in self.offset_mapping]
         for span in self.spans:
-            if fit_to_token:
+            if fit_token_span == NERSpanFittingScheme.MAXIMIZE:
                 for st in range(len(self.token_ids)):
                     if offset_mapping_end_with_sentinel[st] <= span.start < offset_mapping_end_with_sentinel[st+1]:
                         break
@@ -220,11 +224,15 @@ class NERInstance(pydantic.BaseModel):
 
                 token_spans.append(NERSpan(start=st,end=et_minus_one+1, label=span.label, id=span.id))
 
-            else:
+            elif fit_token_span == NERSpanFittingScheme.MINIMIZE:
                 st = start_to_token_id.get(span.start, None)
                 et_minus_one = end_to_token_id.get(span.end, None)
                 if (st is not None) and (et_minus_one is not None):
                     token_spans.append(NERSpan(start=st,end=et_minus_one+1, label=span.label, id=span.id))
+
+            else:
+                raise ValueError(fit_token_span)
+
         self.token_spans = token_spans
 
         if truncation == NERTruncationScheme.SPLIT:
