@@ -21,8 +21,9 @@ class NERSpanTestCase(unittest.TestCase):
         with self.assertRaises(pydantic.ValidationError):
             span2 = ner.NERSpan(start=7, end=3, label=0)
 
-        with self.assertRaises(pydantic.ValidationError):
-            span3 = ner.NERSpan(start=7, end=7, label=0)
+        # NOTE: currently accept zero-size span.
+        # with self.assertRaises(pydantic.ValidationError):
+        #     span3 = ner.NERSpan(start=7, end=7, label=0)
 
     def test_set(self):
         span_set1 = {
@@ -56,7 +57,8 @@ class NERSpanTestCase(unittest.TestCase):
 class NERInstanceTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.tokenizer = transformers.AutoTokenizer.from_pretrained("roberta-base")
+        cls.tokenizer = transformers.AutoTokenizer.from_pretrained("roberta-base", trim_offsets=False)
+        cls.tokenizer_with_trimming = transformers.AutoTokenizer.from_pretrained("roberta-base", trim_offsets=True)
     def setUp(self) -> None:
         pass
     def tearDown(self) -> None:
@@ -94,6 +96,12 @@ class NERInstanceTestCase(unittest.TestCase):
         )
         return instance
 
+    def test_trimed_tokenizer(self):
+        with self.assertRaises(ValueError):
+            instance1 = self.build_basic_instance(tokenizer=self.tokenizer_with_trimming)
+
+        instance2 = self.build_basic_instance(tokenizer=self.tokenizer)
+
     def test_build_and_load(self):
         instance = self.build_basic_instance()
         dumped1_1 = instance.model_dump()
@@ -111,29 +119,36 @@ class NERInstanceTestCase(unittest.TestCase):
 
     def test_encode(self):
         instance1 = self.build_basic_instance()
-        ret_value = instance1.encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=True)
+        ret_value = instance1.encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
         self.assertIs(instance1, ret_value)
         self.assertNotEqual({span.without_id() for span in instance1.spans}, {span.without_id() for span in instance1.token_spans})
-        self.assertEqual({span.without_id() for span in instance1.spans}, {span.without_id() for span in instance1.decode_token_span_to_char_span(instance1.token_spans)})
+        self.assertEqual({span.without_id() for span in instance1.spans}, {span.without_id() for span in instance1.decode_token_span_to_char_span(instance1.token_spans, strip=True)})
 
-        instance1_by_build = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=True)
-        self.assertEqual(instance1.input_ids, instance1_by_build.input_ids)
+        instance1_by_build = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
+        self.assertEqual(instance1.token_ids, instance1_by_build.token_ids)
         self.assertEqual(instance1.token_spans, instance1_by_build.token_spans)
         self.assertEqual(instance1.offset_mapping, instance1_by_build.offset_mapping)
-
-        instance1_nonfuzzy = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=False)
-        self.assertIsNot(instance1, instance1_nonfuzzy)
-        self.assertEqual(instance1.input_ids, instance1_nonfuzzy.input_ids)
-        self.assertEqual(instance1.token_spans, instance1_nonfuzzy.token_spans)
         self.assertEqual(len(instance1.spans), len(instance1.token_spans))
 
-        instance2 = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=True)
-        instance2_nonfuzzy = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fuzzy=False)
-        self.assertIsNot(instance2, instance2_nonfuzzy)
-        self.assertEqual(instance2.input_ids, instance2_nonfuzzy.input_ids)
-        self.assertNotEqual(instance2.token_spans, instance2_nonfuzzy.token_spans)
+        instance1_minimized_fitting = self.build_basic_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        self.assertIsNot(instance1, instance1_minimized_fitting)
+        self.assertEqual(instance1.token_ids, instance1_minimized_fitting.token_ids)
+        self.assertNotEqual(instance1.token_spans, instance1_minimized_fitting.token_spans)
+        self.assertNotEqual(len(instance1_minimized_fitting.spans), len(instance1_minimized_fitting.token_spans))
+
+        instance1_minimized_fitting_with_trimming = self.build_basic_instance().encode_(tokenizer=self.tokenizer_with_trimming, ignore_trim_offsets=True, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        self.assertIsNot(instance1, instance1_minimized_fitting_with_trimming)
+        self.assertEqual(instance1.token_ids, instance1_minimized_fitting_with_trimming.token_ids)
+        self.assertEqual(instance1.token_spans, instance1_minimized_fitting_with_trimming.token_spans)
+        self.assertEqual(len(instance1_minimized_fitting_with_trimming.spans), len(instance1_minimized_fitting_with_trimming.token_spans))
+
+        instance2 = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=True)
+        instance2_minimized_fitting = self.build_unsafe_instance1().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE, fit_to_token=False)
+        self.assertIsNot(instance2, instance2_minimized_fitting)
+        self.assertEqual(instance2.token_ids, instance2_minimized_fitting.token_ids)
+        self.assertNotEqual(instance2.token_spans, instance2_minimized_fitting.token_spans)
         self.assertEqual(len(instance2.spans), len(instance2.token_spans))
-        self.assertNotEqual(len(instance2_nonfuzzy.spans), len(instance2_nonfuzzy.token_spans))
+        self.assertNotEqual(len(instance2_minimized_fitting.spans), len(instance2_minimized_fitting.token_spans))
 
         ref_spans1 = {span.without_id() for span in instance1.spans}
         self.assertEqual(len(ref_spans1), len(instance1.spans))
@@ -149,14 +164,14 @@ class NERInstanceTestCase(unittest.TestCase):
         # with_special_tokens (no truncation)
         instance1 = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.NONE)
         instance1_without_sp = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=False, truncation=ner.NERTruncationScheme.NONE)
-        self.assertEqual(len(instance1.input_ids)-2, len(instance1_without_sp.input_ids))
-        self.assertEqual(instance1.input_ids[1:-1], instance1_without_sp.input_ids)
-        self.assertEqual(len(instance1.input_ids), len(instance1.offset_mapping))
-        self.assertEqual(instance1.input_ids, [self.tokenizer.bos_token_id] + instance1_without_sp.input_ids + [self.tokenizer.eos_token_id])
+        self.assertEqual(len(instance1.token_ids)-2, len(instance1_without_sp.token_ids))
+        self.assertEqual(instance1.token_ids[1:-1], instance1_without_sp.token_ids)
+        self.assertEqual(len(instance1.token_ids), len(instance1.offset_mapping))
+        self.assertEqual(instance1.token_ids, [self.tokenizer.bos_token_id] + instance1_without_sp.token_ids + [self.tokenizer.eos_token_id])
         self.assertEqual([span.model_copy(update={"start":span.start-1, "end":span.end-1}) for span in instance1.token_spans], instance1_without_sp.token_spans)
 
         non_truncated_instance1_by_arg_False = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=False)
-        self.assertEqual(instance1.input_ids, non_truncated_instance1_by_arg_False.input_ids)
+        self.assertEqual(instance1.token_ids, non_truncated_instance1_by_arg_False.token_ids)
         self.assertEqual(instance1.token_spans, non_truncated_instance1_by_arg_False.token_spans)
 
         with self.assertRaises(AssertionError):
@@ -165,8 +180,8 @@ class NERInstanceTestCase(unittest.TestCase):
             instance.with_special_tokens_(tokenizer=self.tokenizer)
         instance1_forced_with_sp = instance1_without_sp.with_special_tokens(tokenizer=self.tokenizer)
         self.assertIsNot(instance1_forced_with_sp, instance1_without_sp)
-        self.assertNotEqual(instance1_without_sp.input_ids, instance1_forced_with_sp.input_ids)
-        self.assertEqual(instance1.input_ids, instance1_forced_with_sp.input_ids)
+        self.assertNotEqual(instance1_without_sp.token_ids, instance1_forced_with_sp.token_ids)
+        self.assertEqual(instance1.token_ids, instance1_forced_with_sp.token_ids)
         self.assertEqual(instance1.token_spans, instance1_forced_with_sp.token_spans)
         self.assertEqual(instance1.offset_mapping, instance1_forced_with_sp.offset_mapping)
 
@@ -175,14 +190,14 @@ class NERInstanceTestCase(unittest.TestCase):
             # no arg for max_length
             self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.TRUNCATE)
         truncated_instance1 = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.TRUNCATE, max_length=8)
-        self.assertNotEqual(instance1.input_ids, truncated_instance1.input_ids)
+        self.assertNotEqual(instance1.token_ids, truncated_instance1.token_ids)
         self.assertNotEqual(len(truncated_instance1.spans), len(truncated_instance1.token_spans))
         self.assertNotEqual(instance1.token_spans, truncated_instance1.token_spans)
-        self.assertNotEqual(instance1.input_ids[:8], truncated_instance1.input_ids)
-        self.assertEqual(instance1.input_ids[:7] + [self.tokenizer.eos_token_id], truncated_instance1.input_ids)
+        self.assertNotEqual(instance1.token_ids[:8], truncated_instance1.token_ids)
+        self.assertEqual(instance1.token_ids[:7] + [self.tokenizer.eos_token_id], truncated_instance1.token_ids)
 
         truncated_instance1_by_arg_True = self.build_very_long_instance().encode_(tokenizer=self.tokenizer, add_special_tokens=True, truncation=True, max_length=8)
-        self.assertEqual(truncated_instance1.input_ids, truncated_instance1_by_arg_True.input_ids)
+        self.assertEqual(truncated_instance1.token_ids, truncated_instance1_by_arg_True.token_ids)
         self.assertEqual(truncated_instance1.token_spans, truncated_instance1_by_arg_True.token_spans)
 
         # split
@@ -199,14 +214,14 @@ class NERInstanceTestCase(unittest.TestCase):
         self.assertIs(type(split_instances1_without_sp), list)
         self.assertNotEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.spans})
         self.assertNotEqual({span.without_id() for span in instance1_without_sp.token_spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.token_spans})
-        self.assertNotEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans)})
-        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.recover_split_offset_of_char_spans(instance.decode_token_span_to_char_span(instance.token_spans))})
-        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans, recover_split=True)})
+        self.assertNotEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans, strip=True)})
+        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.recover_split_offset_of_char_spans(instance.decode_token_span_to_char_span(instance.token_spans, strip=True))})
+        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans, strip=True, recover_split=True)})
 
         # recover text
         recovered_text = [None for _ in range(len(instance1.text))]
         for instance in split_instances1_without_sp:
-            start = instance.get_decoded_metadata()["split"]["char_start"]
+            start = instance.info.split.char_offset
             end = start + len(instance.text)
             for src,dest in enumerate(range(start, end)):
                 if recovered_text[dest] is not None:
@@ -214,16 +229,16 @@ class NERInstanceTestCase(unittest.TestCase):
                 recovered_text[dest] = instance.text[src]
         self.assertEqual(instance1.text, "".join(recovered_text))
 
-        # recover input_ids
-        recovered_input_ids = [None for _ in range(len(instance1_without_sp.input_ids))]
+        # recover token_ids
+        recovered_token_ids = [None for _ in range(len(instance1_without_sp.token_ids))]
         for instance in split_instances1_without_sp:
-            start = instance.get_decoded_metadata()["split"]["token_start"]
-            end = start + len(instance.input_ids)
+            start = instance.info.split.token_offset
+            end = start + len(instance.token_ids)
             for src,dest in enumerate(range(start, end)):
-                if recovered_input_ids[dest] is not None:
-                    self.assertEqual(recovered_input_ids[dest], instance.input_ids[src])
-                recovered_input_ids[dest] = instance.input_ids[src]
-        self.assertEqual(list(instance1_without_sp.input_ids), recovered_input_ids)
+                if recovered_token_ids[dest] is not None:
+                    self.assertEqual(recovered_token_ids[dest], instance.token_ids[src])
+                recovered_token_ids[dest] = instance.token_ids[src]
+        self.assertEqual(list(instance1_without_sp.token_ids), recovered_token_ids)
 
         # with_query_and_special_tokens
         query = [42,43,44]
@@ -234,8 +249,8 @@ class NERInstanceTestCase(unittest.TestCase):
             instance.with_query_and_special_tokens_(tokenizer=self.tokenizer, encoded_query=query, max_length=10000000)
         instance1_with_query = instance1_without_sp.with_query_and_special_tokens(tokenizer=self.tokenizer, encoded_query=query, max_length=10000000)
         self.assertIsNot(instance1_with_query, instance1_without_sp)
-        self.assertNotEqual(instance1_with_query.input_ids, instance1_without_sp.input_ids)
-        self.assertNotEqual(instance1_with_query.input_ids, instance1.input_ids)
+        self.assertNotEqual(instance1_with_query.token_ids, instance1_without_sp.token_ids)
+        self.assertNotEqual(instance1_with_query.token_ids, instance1.token_ids)
         self.assertNotEqual(instance1_with_query.token_spans, instance1_without_sp.token_spans)
         self.assertEqual(instance1_with_query.spans, instance1_without_sp.spans)
         self.assertEqual(instance1_with_query.spans, instance1_with_query.decode_token_span_to_char_span(instance1_with_query.token_spans, strip=True))

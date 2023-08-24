@@ -8,6 +8,16 @@ _formatter = _logging.Formatter('%(name)s - %(levelname)s:%(message)s')
 _ch.setFormatter(_formatter)
 _logger.addHandler(_ch)
 
+class _WarnOnce:
+    keys = set()
+    __init__ = None
+    @classmethod
+    def once(cls, key, message):
+        if key not in cls.keys:
+            cls.keys.add(key)
+            _logger.warning(message)
+
+
 _TWO_BECAUSE_OF_SPECIAL_TOKEN = 2
 
 
@@ -16,14 +26,17 @@ import math as _math
 import collections as _collections
 import dataclasses as _D
 import enum as _enum
-from typing import List as _List, Optional as _Optional, Tuple as _Tuple, Union as _Union, Any as _Any
+from typing import List as _List, Optional as _Optional, Tuple as _Tuple, Union as _Union, Any as _Any, Annotated as _Annotated, Generic as _Generic, TypeVar as _TypeVar
 
 import pydantic
 import numpy as _numpy
 import transformers as _transformers
 
 # %%
+
+# %%
 class TokenizerInterface:
+    init_kwargs:dict[str,_Any] = dict()
     def __call__(self, *args, **kwargs) -> dict:
         raise NotImplementedError("TokenizerInterface.__call__")
     def build_inputs_with_special_tokens(self, *args, **kwargs) -> _List[int]:
@@ -33,22 +46,22 @@ class TokenizerInterface:
 class NERSpan(pydantic.BaseModel):
     start: int
     end: int
-    label: int
+    label: int = 0
     id: _Optional[str] = None
+
+    @pydantic.model_validator(mode="after")
+    def check_some(self):
+        if not (self.start <= self.end):
+            raise ValueError(f'self.start must be equal to or less than self.end, but {self.start=} {self.end=} ({self=})')
+        return self
 
     model_config = pydantic.ConfigDict(
         validate_assignment=True,
         frozen=True,
     )
 
-    @pydantic.model_validator(mode="after")
-    def check_some(self):
-        assert self.start < self.end, f'self.start must be less than self.end, but ({self.start}, {self.end})'
-        return self
-
     def without_id(self):
         return self.model_copy(update={"id":None})
-
 
 
 class NERTaggingScheme(str, _enum.Enum):
@@ -73,6 +86,28 @@ class NERTruncationScheme(str, _enum.Enum):
     TRUNCATE = "truncate"
     SPLIT = "split"
 
+
+class NERSplitInfo(pydantic.BaseModel):
+    num_splits:int
+    split_index:int
+    char_offset:int
+    token_offset:int
+
+    def is_initial_split(self) -> bool:
+        return self.split_index == 0
+    def is_last_split(self) -> bool:
+        return self.num_splits == (self.split_index + 1)
+
+class NERAdditionalInfo(pydantic.BaseModel):
+    split: _Optional[NERSplitInfo] = None
+    forward_special_token_size: int = pydantic.Field(default=0, description="number of tokens that are not included in originall text and placed in front of it (e.g., [BOS] or additional prompt).")
+    backward_special_token_size: int = pydantic.Field(default=0, description="number of tokens that are not included in originall text and placed behind it (e.g., [SEP] or additional prompt).")
+    note: _Optional[_Any] = None
+
+def serialize_without_default(mod:pydantic.BaseModel) -> dict[str, _Any]:
+    return mod.model_dump(exclude_defaults=True)
+
+
 class NERInstance(pydantic.BaseModel):
     text: str
     spans: _List[NERSpan]
@@ -83,36 +118,36 @@ class NERInstance(pydantic.BaseModel):
     offset_mapping: _Optional[_List[_Tuple[int,int]]] = None
     has_added_special_tokens: bool = False
 
-    metadata: dict = _D.field(default_factory=dict)
-    note: _Any = None
+    info: _Annotated[NERAdditionalInfo, pydantic.PlainSerializer(serialize_without_default, when_used="unless-none")] = pydantic.Field(default_factory=NERAdditionalInfo)
 
     model_config = pydantic.ConfigDict(
         validate_assignment=True,
     )
 
-    @property
-    def input_ids(self) -> _Optional[_List[int]]:
-        return self.token_ids
-    @input_ids.setter
-    def input_ids(self, new_input_ids:_Optional[_List[int]]) -> None:
-        self.token_ids = new_input_ids
-
     @classmethod
-    def build(cls, text:str, spans:_List[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:_List[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_to_token:_Optional[bool]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [NERSpan.model_validate(span) for span in spans]
+        spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
         if tokenizer is not None:
             encode_func_args = dict()
-            for key in ["add_special_tokens", "truncation", "max_length", "stride", "fuzzy", "tokenizer_other_kwargs"]:
+            for key in ["add_special_tokens", "truncation", "max_length", "stride", "fit_to_token", "add_split_idx_to_id", "return_non_truncated", "ignore_trim_offsets", "tokenizer_other_kwargs"]:
                 value = eval(key)
                 if value is not None:
                     encode_func_args[key] = value
             out = out.encode_(tokenizer, **encode_func_args)
         return out
 
-    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fuzzy:bool=True, tokenizer_other_kwargs:_Optional[dict]=None):
-        # reset
-        self.has_added_special_tokens = False
+    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_to_token:bool=True, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
+        assert not self.has_added_special_tokens
+
+        if tokenizer.init_kwargs.get("trim_offsets", True):
+            message = "Tokenizer's `trim_offsets` parameter is set to be True or not set, however, this will lead the mismatch at offset_mapping. Consider to initialize tokenizer with `AutoTokenizer.from_pretrained(..., trim_offsets=True)`."
+            if not ignore_trim_offsets:
+                message += " To ignore this warning, set `ignore_trim_offsets=True` at calling `NERInstance.build` or `NERInstance.encode_`."
+                raise ValueError(message)
+            else:
+                _WarnOnce.once(key="trim_offsets should be False at NERInstance.encode_", message=message)
 
         if isinstance(truncation, bool):
             if truncation:
@@ -139,6 +174,7 @@ class NERInstance(pydantic.BaseModel):
         if truncation == NERTruncationScheme.NONE:
             pass
         elif truncation == NERTruncationScheme.TRUNCATE:
+            if return_non_truncated: raise NotImplementedError("return_non_truncated")
             assert max_length is not None
             tokenizer_other_kwargs["truncation"] = True
             if add_special_tokens:
@@ -167,7 +203,7 @@ class NERInstance(pydantic.BaseModel):
         offset_mapping_start_with_sentinel = [start for start,_ in self.offset_mapping] + [self.offset_mapping[-1][1]]
         offset_mapping_end_with_sentinel = [0] + [end for _,end in self.offset_mapping]
         for span in self.spans:
-            if fuzzy:
+            if fit_to_token:
                 for st in range(len(self.token_ids)):
                     if offset_mapping_end_with_sentinel[st] <= span.start < offset_mapping_end_with_sentinel[st+1]:
                         break
@@ -193,12 +229,15 @@ class NERInstance(pydantic.BaseModel):
 
         if truncation == NERTruncationScheme.SPLIT:
             if add_special_tokens:
-                outs = self._split_with_size(max_length=max_length-_TWO_BECAUSE_OF_SPECIAL_TOKEN, stride=stride)
+                outs = self._split_with_size(max_length=max_length-_TWO_BECAUSE_OF_SPECIAL_TOKEN, stride=stride, add_split_idx_to_id=add_split_idx_to_id)
                 for out in outs:
                     out.with_special_tokens_(tokenizer=tokenizer)
             else:
-                outs = self._split_with_size(max_length=max_length, stride=stride)
-            return outs
+                outs = self._split_with_size(max_length=max_length, stride=stride, add_split_idx_to_id=add_split_idx_to_id)
+            if return_non_truncated:
+                return outs, self
+            else:
+                return outs
 
         else:
             if add_special_tokens:
@@ -218,6 +257,8 @@ class NERInstance(pydantic.BaseModel):
         self.offset_mapping = new_offset_mapping
         self.token_spans = new_token_spans
         self.has_added_special_tokens = True
+        self.info.forward_special_token_size = _TWO_BECAUSE_OF_SPECIAL_TOKEN // 2
+        self.info.backward_special_token_size = _TWO_BECAUSE_OF_SPECIAL_TOKEN // 2
         return self
 
     def with_special_tokens(self, tokenizer:TokenizerInterface):
@@ -243,7 +284,7 @@ class NERInstance(pydantic.BaseModel):
         self.offset_mapping = new_offset_mapping
         self.token_spans = new_token_spans
         self.has_added_special_tokens = True
-        self.metadata["second_token_type_start"] = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1
+        self.info.forward_special_token_size = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1 # [BOS] prompt [SEP] ...
 
         if restrict_gold_class is not None:
             self.spans = [span for span in self.spans if span.label == restrict_gold_class]
@@ -255,14 +296,14 @@ class NERInstance(pydantic.BaseModel):
         out = self.model_copy(deep=True)
         return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length, restrict_gold_class=restrict_gold_class)
 
-    def _split_with_size(self, max_length, stride):
+    def _split_with_size(self, max_length, stride, add_split_idx_to_id:bool):
         assert not self.has_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
         num_splits = 1 + _math.ceil(max(0, len(self.token_ids) - max_length) / stride)
 
         if num_splits == 1:
             outs = [self.model_copy(deep=True)]
-            outs[0].metadata["split"] = f's0/{num_splits}|c0|t0'
+            outs[0].info.split = NERSplitInfo(num_splits=num_splits, split_index=0, char_offset=0, token_offset=0)
         else:
             outs = [self.model_copy(deep=True) for _ in range(num_splits)]
             for split_idx, out in enumerate(outs):
@@ -283,7 +324,11 @@ class NERInstance(pydantic.BaseModel):
                 out.token_spans = [token_span for token_span in out.token_spans if (token_start<=token_span.start) and (token_span.end <= token_end)]
                 out.token_spans = [token_span.model_copy(update={"start":token_span.start-token_start, "end":token_span.end-token_start}) for token_span in out.token_spans]
 
-                out.metadata["split"] = f's{split_idx}/{num_splits}|c{char_start}|t{token_start}'
+                out.info.split = NERSplitInfo(num_splits=num_splits, split_index=split_idx, char_offset=char_start, token_offset=token_start)
+
+        if add_split_idx_to_id:
+            outs = [out.model_copy(update={"id":out.id + f"_{split_idx}"}) for split_idx, out in enumerate(outs)]
+
         return outs
 
     def _padded_mappings_and_token_spans(self, num_forward_padding:int, num_backward_padding:int):
@@ -300,7 +345,7 @@ class NERInstance(pydantic.BaseModel):
         return padded_offset_mapping, padded_token_spans
 
     def _truncate_back_tokens_(self, size:int):
-        assert not self.has_added_special_tokens, 'cannot truncate after special tokens added. id:{self.id}'
+        assert not self.has_added_special_tokens, 'cannot truncate after special tokens has been added. id:{self.id}'
         assert size >= 0
         self.token_ids = self.token_ids[:-size]
         self.offset_mapping = self.offset_mapping[:-size]
@@ -321,7 +366,8 @@ class NERInstance(pydantic.BaseModel):
         return self
 
 
-    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
+    @pydantic.validate_call
+    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative:_Optional[int]=None, strict:bool=True) -> _Union[_List[int],_List[_List[int]]]:
         """
         output := [label_0, label_1, label_2, ...]
 
@@ -330,11 +376,11 @@ class NERInstance(pydantic.BaseModel):
             t: timestep
 
             if tagging_scheme==BILOU:
-                label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:L-class_0, 4:U-class_0, 5:B-class_1, 6:I-class_1, ..., 4*n+1:B-class_n, 4*n+2:I-class_n, 4*n+3:L-class_n, 4*n+4:U-class_n, ...}
+                label_t \\in {0:O, 1:B-class_0, 2:I-class_0, 3:L-class_0, 4:U-class_0, 5:B-class_1, 6:I-class_1, ..., 4*n+1:B-class_n, 4*n+2:I-class_n, 4*n+3:L-class_n, 4*n+4:U-class_n, ...}
             if tagging_scheme==BIO:
-                label_t \in {0:O, 1:B-class_0, 2:I-class_0, 3:B-class_1, 4:I-class_1, ..., 2*n+1:B-class_n, 2*n+2:I-class_n, ...}
+                label_t \\in {0:O, 1:B-class_0, 2:I-class_0, 3:B-class_1, 4:I-class_1, ..., 2*n+1:B-class_n, 2*n+2:I-class_n, ...}
             if tagging_scheme==TOKEN_LEVEL:
-                label_t \in {0:O, 1:class_0, 2:class_1, ..., n+1:class_n, ...}
+                label_t \\in {0:O, 1:class_0, 2:class_1, ..., n+1:class_n, ...}
 
         if label_scheme==MULTI_LABEL:
             label_t := [label_t_class_0, label_t_class_1, ..., label_t_class_N]
@@ -344,22 +390,22 @@ class NERInstance(pydantic.BaseModel):
             k: the index of the class
 
             if tagging_scheme==BILOU:
-                label_t_class_k \in {0:O, 1:B, 2:I, 3:L, 4:U}
+                label_t_class_k \\in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
-                label_t_class_k \in {0:O, 1:B, 2:I}
+                label_t_class_k \\in {0:O, 1:B, 2:I}
             if tagging_scheme==TOKEN_LEVEL:
-                label_t_class_k \in {0:Negative, 1:Positive}
+                label_t_class_k \\in {0:Negative, 1:Positive}
 
         if label_scheme==SPAN_ONLY:
             label_t := int
             t: timestep
 
             if tagging_scheme==BILOU:
-                label_t \in {0:O, 1:B, 2:I, 3:L, 4:U}
+                label_t \\in {0:O, 1:B, 2:I, 3:L, 4:U}
             if tagging_scheme==BIO:
-                label_t \in {0:O, 1:B, 2:I}
+                label_t \\in {0:O, 1:B, 2:I}
             if tagging_scheme==TOKEN_LEVEL:
-                label_t \in {0:Negative, 1:Positive}
+                label_t \\in {0:Negative, 1:Positive}
         """
         if label_scheme == NERLabelScheme.MULTI_LABEL:
             assert num_class_without_negative is not None, "num_class_without_negative must be specified under the multi-labelling setting."
@@ -446,15 +492,19 @@ class NERInstance(pydantic.BaseModel):
 
         return out
 
-    def decode_token_span_to_char_span(self, span:_Union[NERSpan, _List[NERSpan]], strip:bool=False, recover_split:bool=False) -> _Union[NERSpan, _List[NERSpan]]:
+    def decode_token_span_to_char_span(self, span:_Union[NERSpan, _List[NERSpan]], strip:bool=True, recover_split:bool=False, is_token_span_starting_after_special_tokens:bool=False) -> _Union[NERSpan, _List[NERSpan]]:
         if not isinstance(span, NERSpan):
-            return [self.decode_token_span_to_char_span(s, strip=strip, recover_split=recover_split) for s in span]
+            return [self.decode_token_span_to_char_span(s, strip=strip, recover_split=recover_split, is_token_span_starting_after_special_tokens=is_token_span_starting_after_special_tokens) for s in span]
 
-        char_start, _ = self.offset_mapping[span.start]
+        skip_offset = 0
+        if is_token_span_starting_after_special_tokens:
+            skip_offset = skip_offset + self.info.forward_special_token_size
+
+        char_start, _ = self.offset_mapping[skip_offset+span.start]
         if span.start == span.end:
             char_end = char_start
         else:
-            _,char_end = self.offset_mapping[span.end-1]
+            _,char_end = self.offset_mapping[skip_offset+span.end-1]
         out = NERSpan(start=char_start, end=char_end, label=span.label, id=span.id)
 
         if strip:
@@ -478,22 +528,10 @@ class NERInstance(pydantic.BaseModel):
         if not isinstance(span, NERSpan):
             return [self.recover_split_offset_of_char_spans(s) for s in span]
 
-        split_offset = self.get_decoded_metadata()["split"]["char_start"]
+        split_offset = self.info.split.char_offset
         out = span.model_copy(update={"start":span.start+split_offset, "end":span.end+split_offset})
         return out
 
-    def get_decoded_metadata(self):
-        outs = dict(self.metadata)
-        if "split" in outs:
-            data = {col[0]:col[1:] for col in outs["split"].split("|")}
-            split_idx, num_splits = map(int, data["s"].split("/"))
-            outs["split"] = {
-                "num_splits": num_splits,
-                "split_idx": split_idx,
-                "char_start": int(data["c"]),
-                "token_start": int(data["t"]),
-            }
-        return outs
 
 
 
@@ -818,20 +856,20 @@ def viterbi_decode(logits_sequence:_Union[_List[float],_List[_List[float]],_List
 def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
     if len(spans) == 0:
         return list()
-    max_end = max([span.end for span in spans])
-    zero_table = [0 for _ in range(max_end+1)]
-    label_to_table = _collections.defaultdict(lambda: list(zero_table))
+    max_end = max([0] + [span.end for span in spans])
+    initial_table = [False for _ in range(max_end)]
+    label_class_to_table = _collections.defaultdict(lambda: list(initial_table))
     for span in spans:
         for i in range(span.start, span.end):
-            label_to_table[span.label][i] = 1
+            label_class_to_table[span.label][i] = True
 
     outs = list()
-    for label, table in label_to_table.items():
+    for label, table in label_class_to_table.items():
         t = 0
         while t < max_end:
-            if table[t] == 1:
+            if table[t]:
                 start = t
-                while (t < max_end) and (table[t] == 1):
+                while (t < max_end) and table[t]:
                     t += 1
                 end = t
                 outs.append(NERSpan(start=start,end=end,label=label))
@@ -841,6 +879,103 @@ def merge_spans(spans:_List[NERSpan]) -> _List[NERSpan]:
                 continue
 
     return outs
+
+
+# %%
+class NERAggregateScheme(str, _enum.Enum):
+    NONE = "none"
+    MEAN = "mean"
+    SET = "set"
+
+_ElementT = _TypeVar("_ElementT")
+class NERMultiElementSparseSequence(_Generic[_ElementT]):
+    def __init__(self) -> None:
+        self._body: list[list[_ElementT]] = list()
+
+    def __len__(self) -> int:
+        return len(self._body)
+
+    def _expand(self, max_size) -> "NERMultiElementSparseSequence":
+        current_size = len(self)
+        if current_size < max_size:
+            new_values = [list() for _ in range(current_size, max_size)]
+            self._body.extend(new_values)
+        return self
+
+    def values_at(self, idx:int|slice, allow_expand:bool=True) -> list[_ElementT] | list[list[_ElementT]]:
+        if allow_expand:
+            if isinstance(idx, int):
+                expected_size = idx + 1
+            elif isinstance(idx, slice):
+                if idx.stop is not None:
+                    expected_size = idx.stop
+                else:
+                    expected_size = 0
+            else:
+                raise ValueError(f'type(idx) must be either int or slice, but {type(idx)=} (value={idx}).')
+            self._expand(expected_size)
+        return self._body[idx]
+
+    def __getitem__(self, idx:int|slice) -> list[_ElementT] | list[list[_ElementT]]:
+        return self.values_at(idx=idx, allow_expand=True)
+
+    def registor(self, offset:int, values:list[_ElementT]) -> None:
+        target_sequence = self[offset:offset+len(values)]
+        for i, value in enumerate(values):
+            target_sequence[i].append(value)
+        return
+
+    def aggregate(self, scheme:NERAggregateScheme, allow_missing:bool=False, missing_value:_Any=None) -> list:
+        out = list()
+        for i in range(len(self)):
+            values:list[_ElementT] = self.values_at(i, allow_expand=False)
+            if len(values) == 0:
+                if not allow_missing:
+                    raise ValueError(f'There is no value at index {i} while allow_missing=False')
+                else:
+                    aggregated_value = missing_value
+            else:
+                if scheme == NERAggregateScheme.NONE:
+                    aggregated_value = values
+                elif scheme == NERAggregateScheme.MEAN:
+                    aggregated_value:_ElementT = sum(values) / len(values)
+                elif scheme == NERAggregateScheme.SET:
+                    aggregated_value = set(values)
+                else:
+                    raise NotImplementedError(scheme)
+            out.append(aggregated_value)
+        return out
+
+@pydantic.validate_call
+def ensemble_split_sequences(splits:list[NERInstance], corresponding_token_sequences:list[_Any], aggregate:NERAggregateScheme, boundary_exclusion_size:pydantic.NonNegativeInt=0, allow_missing:bool=False, missing_value:_Any=None) -> list:
+    # NOTE: comment-out since this function now uses pydantic.validate_call with the type of NonNegativeInt for boundary_exclusion_size.
+    #assert boundary_exclusion_size >= 0, f'{boundary_exclusion_size=} must be equal to or greater than 0.'
+
+    aggregator = NERMultiElementSparseSequence()
+    for split, sequence in zip(splits, corresponding_token_sequences):
+        seq_len = len(sequence)
+        assert len(split.token_ids) == seq_len, f'{len(split.token_ids)=} must be equal to len(sequence)={seq_len}'
+
+        token_offset = 0
+        if split.info.split is not None:
+            token_offset = split.info.split.token_offset
+
+        # NOTE: we cannot solely use `-split.info.backward_special_token_size` for the end index of `sequence` but must prepare it explicitly since `split.info.backward_special_token_size` could be 0.
+        sequence_start = split.info.forward_special_token_size
+        sequence_end = seq_len - split.info.backward_special_token_size
+
+        # exclude some tokens that are near the splitting boundary from aggregation.
+        if (boundary_exclusion_size > 0) and (split.info.split is not None):
+            if not split.info.split.is_initial_split():
+                sequence_start = sequence_start + boundary_exclusion_size
+                token_offset = token_offset + boundary_exclusion_size
+            if not split.info.split.is_last_split():
+                sequence_end = sequence_end - boundary_exclusion_size
+            assert sequence_start < sequence_end, f'{boundary_exclusion_size=} must be small enough to be {sequence_start=} < {sequence_end=} so there exist aggregation targets.'
+
+        aggregator.registor(offset=token_offset, values=sequence[sequence_start:sequence_end])
+
+    return aggregator.aggregate(scheme=aggregate, allow_missing=allow_missing, missing_value=missing_value)
 
 
 # %%
