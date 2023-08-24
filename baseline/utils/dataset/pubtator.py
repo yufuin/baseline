@@ -95,7 +95,7 @@ def _format_doc(doc:dict):
     out["ents"] = Table(doc["ents"])
     return out
 
-def load_pubtator(file, explode_entity:bool=True, entity_sep:str=";"):
+def load_pubtator_file(file, explode_entity:bool=True, entity_sep:str=";"):
     """
     output: List[dict]
         output[i]: dict (keys=["id", "t", "a", "ents"])
