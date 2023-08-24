@@ -1,6 +1,4 @@
 import unittest
-import json
-import dataclasses
 
 import pydantic
 
@@ -8,6 +6,7 @@ import numpy as np
 import transformers
 
 import baseline.utils.dataset.ner as ner
+ner.change_logging_level("ERROR")
 
 class NERSpanTestCase(unittest.TestCase):
     def test_load_from_dict(self):
