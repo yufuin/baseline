@@ -140,8 +140,10 @@ class NERInstance(_pydantic.BaseModel):
     def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:None|bool|NERTruncationScheme=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:NERSpanFittingScheme=NERSpanFittingScheme.MAXIMIZE, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
         assert not self.has_added_special_tokens
 
-        if tokenizer.init_kwargs.get("trim_offsets", True):
-            message = "Tokenizer's `trim_offsets` parameter is set to be True or not set, however, this will lead the mismatch at offset_mapping. Consider to initialize tokenizer with `AutoTokenizer.from_pretrained(..., trim_offsets=True)`."
+        if tokenizer.init_kwargs.get("trim_offsets", True) :
+            _tokenizer_name_for_message = getattr(tokenizer, 'name_or_path', None)
+            _tokenizer_name_for_message = f'"{_tokenizer_name_for_message}"' if _tokenizer_name_for_message is not None else "..."
+            message = f"Tokenizer's `trim_offsets` parameter should be False, however, is set to be True or not set. This will lead the mismatch at offset_mapping. Consider to initialize tokenizer with `trim_offsets=False` (e.g., `AutoTokenizer.from_pretrained({_tokenizer_name_for_message}, trim_offsets=False)`)."
             if not ignore_trim_offsets:
                 message += " To ignore this warning, set `ignore_trim_offsets=True` at calling `NERInstance.build` or `NERInstance.encode_`."
                 raise ValueError(message)
