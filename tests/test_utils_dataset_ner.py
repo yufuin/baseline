@@ -94,6 +94,11 @@ class NERInstanceTestCase(unittest.TestCase):
             **otherargs
         )
         return instance
+    def build_string_label_instance(self, **otherargs) -> tuple[ner.NERInstance, dict[str,int]]:
+        label_to_id = {"class_0":0, "class_1":1}
+        id_to_label = {v:k for k,v in label_to_id.items()}
+        base_instance = self.build_basic_instance(**otherargs)
+        return base_instance.map_labels(id_to_label), label_to_id, id_to_label
 
     def test_trimed_tokenizer(self):
         with self.assertRaises(ValueError):
@@ -214,7 +219,7 @@ class NERInstanceTestCase(unittest.TestCase):
         self.assertNotEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.spans})
         self.assertNotEqual({span.without_id() for span in instance1_without_sp.token_spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.token_spans})
         self.assertNotEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans, strip=True)})
-        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.recover_split_offset_of_char_spans(instance.decode_token_span_to_char_span(instance.token_spans, strip=True))})
+        self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.recover_char_spans_wrt_split_offset(instance.decode_token_span_to_char_span(instance.token_spans, strip=True))})
         self.assertEqual({span.without_id() for span in instance1_without_sp.spans}, {span.without_id() for instance in split_instances1_without_sp for span in instance.decode_token_span_to_char_span(instance.token_spans, strip=True, recover_split=True)})
 
         # recover text
@@ -403,5 +408,93 @@ class NERInstanceTestCase(unittest.TestCase):
         self.assertNotEqual(ref_span, base_span)
         stripped_span = instance1.strip_char_spans(base_span)
         self.assertEqual(ref_span, stripped_span)
+
+    def test_recover_char_spans_wrt_split_offset(self):
+        instances1, instance1 = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.SPLIT, max_length=4, stride=2, return_non_truncated=True)
+        second_instance = instances1[1]
+
+        base_span = second_instance.spans[0]
+        ref_span = [span for span in instance1.spans if span.id == base_span.id]
+        self.assertEqual(len(ref_span), 1)
+        ref_span = ref_span[0].without_id()
+        base_span = base_span.without_id()
+
+        self.assertNotEqual(ref_span, base_span)
+        stripped_span = second_instance.strip_char_spans(base_span)
+        self.assertNotEqual(ref_span, stripped_span)
+        recovered_span = second_instance.recover_char_spans_wrt_split_offset(stripped_span)
+        self.assertEqual(ref_span, recovered_span)
+
+    def test_label_mapping1(self):
+        instance1 = self.build_basic_instance()
+        instance2, label_to_id2, id_to_label2 = self.build_string_label_instance()
+        self.assertNotEqual(instance1, instance2)
+        self.assertEqual(instance1, instance2.map_labels(label_to_id2))
+        self.assertNotEqual(instance1, instance2)
+        self.assertEqual(instance1, instance2.map_labels_(label_to_id2))
+        self.assertEqual(instance1, instance2)
+
+    def test_label_mapping2(self):
+        instance1 = self.build_basic_instance(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.NONE)
+        instance2, label_to_id2, id_to_label2 = self.build_string_label_instance(tokenizer=self.tokenizer, add_special_tokens=True, truncation=ner.NERTruncationScheme.NONE)
+        num_class_without_negative = len(id_to_label2)
+
+        ref_token_spans1 = {span.without_id() for span in instance1.token_spans}
+        ref_token_spans2 = {span.without_id() for span in instance2.token_spans}
+        self.assertNotEqual(ref_token_spans1, ref_token_spans2)
+        ref_token_spans1_without_label = {span.model_copy(update={"label":0}) for span in ref_token_spans1}
+        ref_token_spans2_without_label = {span.model_copy(update={"label":0}) for span in ref_token_spans2}
+        self.assertEqual(ref_token_spans1_without_label, ref_token_spans2_without_label)
+        self.assertNotEqual(ref_token_spans1, ref_token_spans1_without_label)
+        self.assertNotEqual(ref_token_spans2, ref_token_spans2_without_label)
+
+        for tagging_scheme in ner.NERTaggingScheme:
+            for label_scheme in ner.NERLabelScheme:
+                sequence_label1 = instance1.get_sequence_label(tagging_scheme=tagging_scheme, label_scheme=label_scheme, num_class_without_negative=num_class_without_negative)
+                if label_scheme != ner.NERLabelScheme.SPAN_ONLY:
+                    with self.assertRaises(ValueError):
+                        instance2.get_sequence_label(tagging_scheme=tagging_scheme, label_scheme=label_scheme, num_class_without_negative=num_class_without_negative)
+                else:
+                    _ = instance2.get_sequence_label(tagging_scheme=tagging_scheme, label_scheme=label_scheme, num_class_without_negative=num_class_without_negative)
+                sequence_label2 = instance2.get_sequence_label(tagging_scheme=tagging_scheme, label_scheme=label_scheme, label_to_id=label_to_id2, num_class_without_negative=num_class_without_negative)
+                self.assertEqual(sequence_label1, sequence_label2)
+
+                token_spans2_int_id = {span.without_id() for span in ner.convert_sequence_label_to_spans(sequence_label2, tagging_scheme=tagging_scheme, label_scheme=label_scheme)}
+                token_spans2_string_id = {span.without_id() for span in ner.convert_sequence_label_to_spans(sequence_label2, tagging_scheme=tagging_scheme, label_scheme=label_scheme, id_to_label=id_to_label2)}
+
+                if label_scheme != ner.NERLabelScheme.SPAN_ONLY:
+                    if tagging_scheme == ner.NERTaggingScheme.TOKEN_LEVEL:
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans1)
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans2)
+                        self.assertNotEqual(token_spans2_string_id, ref_token_spans1)
+                        self.assertNotEqual(token_spans2_string_id, ref_token_spans2)
+
+                        token_spans2_int_id = {span.without_id() for span in ner.merge_spans(token_spans2_int_id)}
+                        token_spans2_string_id = {span.without_id() for span in ner.merge_spans(token_spans2_string_id)}
+
+                    self.assertEqual(token_spans2_int_id, ref_token_spans1)
+                    self.assertNotEqual(token_spans2_int_id, ref_token_spans2)
+                    self.assertNotEqual(token_spans2_string_id, ref_token_spans1)
+                    self.assertEqual(token_spans2_string_id, ref_token_spans2)
+
+                else:
+                    self.assertEqual(token_spans2_int_id, token_spans2_string_id) # id_to_label must be ignored
+
+                    if tagging_scheme == ner.NERTaggingScheme.TOKEN_LEVEL:
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans1_without_label)
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans1)
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans2)
+
+                        token_spans2_int_id = {span.without_id() for span in ner.merge_spans(token_spans2_int_id)}
+
+                        self.assertEqual(token_spans2_int_id, {span.without_id() for span in ner.merge_spans(ref_token_spans1_without_label)})
+                        self.assertNotEqual(token_spans2_int_id, {span.without_id() for span in ner.merge_spans(ref_token_spans1)})
+                        self.assertNotEqual(token_spans2_int_id, {span.without_id() for span in ner.merge_spans(ref_token_spans2)})
+
+                    else:
+                        self.assertEqual(token_spans2_int_id, ref_token_spans1_without_label)
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans1)
+                        self.assertNotEqual(token_spans2_int_id, ref_token_spans2)
+
 
 
