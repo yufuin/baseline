@@ -5,7 +5,7 @@ import re as _re
 import math as _math
 import collections as _collections
 import enum as _enum
-from typing import Optional as _Optional, Union as _Union, Any as _Any, Annotated as _Annotated, Generic as _Generic, TypeVar as _TypeVar
+from typing import Optional as _Optional, Any as _Any, Annotated as _Annotated, Generic as _Generic, TypeVar as _TypeVar
 
 import pydantic as _pydantic
 import numpy as _numpy
@@ -111,7 +111,7 @@ class NERInstance(_pydantic.BaseModel):
     )
 
     @classmethod
-    def build(cls, text:str, spans:list[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:_Union[None, bool, NERTruncationScheme]=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:_Optional[NERSpanFittingScheme]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
+    def build(cls, text:str, spans:list[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:None|bool|NERTruncationScheme=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:_Optional[NERSpanFittingScheme]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
         spans = [NERSpan.model_validate(span) for span in spans]
         spans = [span if type(span) is NERSpan else NERSpan(*span) for span in spans]
         out = cls(text=text, spans=spans, id=id)
@@ -124,7 +124,7 @@ class NERInstance(_pydantic.BaseModel):
             out = out.encode_(tokenizer, **encode_func_args)
         return out
 
-    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:_Union[None, bool, NERTruncationScheme]=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:NERSpanFittingScheme=NERSpanFittingScheme.MAXIMIZE, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
+    def encode_(self, tokenizer:TokenizerInterface, *, add_special_tokens:bool=False, truncation:None|bool|NERTruncationScheme=NERTruncationScheme.NONE, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:NERSpanFittingScheme=NERSpanFittingScheme.MAXIMIZE, add_split_idx_to_id:bool=False, return_non_truncated:bool=False, ignore_trim_offsets:bool=False, tokenizer_other_kwargs:_Optional[dict]=None):
         assert not self.has_added_special_tokens
 
         if tokenizer.init_kwargs.get("trim_offsets", True):
@@ -357,7 +357,7 @@ class NERInstance(_pydantic.BaseModel):
 
 
     @_pydantic.validate_call
-    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative:_Optional[int]=None, strict:bool=True) -> _Union[list[int],list[list[int]]]:
+    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative:_Optional[int]=None, strict:bool=True) -> list[int] | list[list[int]]:
         """
         output := [label_0, label_1, label_2, ...]
 
@@ -482,7 +482,7 @@ class NERInstance(_pydantic.BaseModel):
 
         return out
 
-    def decode_token_span_to_char_span(self, span:_Union[NERSpan, list[NERSpan]], strip:bool=True, recover_split:bool=False, is_token_span_starting_after_special_tokens:bool=False) -> _Union[NERSpan, list[NERSpan]]:
+    def decode_token_span_to_char_span(self, span:NERSpan|list[NERSpan], strip:bool=True, recover_split:bool=False, is_token_span_starting_after_special_tokens:bool=False) -> NERSpan | list[NERSpan]:
         if not isinstance(span, NERSpan):
             return [self.decode_token_span_to_char_span(s, strip=strip, recover_split=recover_split, is_token_span_starting_after_special_tokens=is_token_span_starting_after_special_tokens) for s in span]
 
@@ -503,7 +503,7 @@ class NERInstance(_pydantic.BaseModel):
             out = self.recover_split_offset_of_char_spans(out)
         return out
 
-    def strip_char_spans(self, span:_Union[NERSpan, list[NERSpan]]) -> _Union[NERSpan, list[NERSpan]]:
+    def strip_char_spans(self, span:NERSpan|list[NERSpan]) -> NERSpan | list[NERSpan]:
         if not isinstance(span, NERSpan):
             return [self.strip_char_spans(s) for s in span]
 
@@ -514,7 +514,7 @@ class NERInstance(_pydantic.BaseModel):
         out = span.model_copy(update={"start":span.start+forward_blank_size, "end":span.end-backward_blank_size})
         return out
 
-    def recover_split_offset_of_char_spans(self, span:_Union[NERSpan, list[NERSpan]]) -> _Union[NERSpan, list[NERSpan]]:
+    def recover_split_offset_of_char_spans(self, span:NERSpan|list[NERSpan]) -> NERSpan | list[NERSpan]:
         if not isinstance(span, NERSpan):
             return [self.recover_split_offset_of_char_spans(s) for s in span]
 
@@ -526,7 +526,7 @@ class NERInstance(_pydantic.BaseModel):
 
 
 # %%
-def convert_sequence_label_to_spans(sequence_label:_Union[list[int],list[list[int]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL) -> list[NERSpan]:
+def convert_sequence_label_to_spans(sequence_label:list[int]|list[list[int]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL) -> list[NERSpan]:
     if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
         if tagging_scheme == NERTaggingScheme.TOKEN_LEVEL:
             return [NERSpan(start=t,end=t+1,label=label-1) for t, label in enumerate(sequence_label) if label != 0]
@@ -673,7 +673,7 @@ def convert_sequence_label_to_spans(sequence_label:_Union[list[int],list[list[in
     else:
         raise ValueError(label_scheme)
 
-def viterbi_decode(logits_sequence:_Union[list[float],list[list[float]],list[list[list[float]]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_token_level:bool=False, as_spans:bool=False) -> _Union[_Union[list[int],list[list[int]]], list[NERSpan]]:
+def viterbi_decode(logits_sequence:list[float]|list[list[float]]|list[list[list[float]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_token_level:bool=False, as_spans:bool=False) -> list[int] | list[list[int]] | list[NERSpan]:
     """
     input: logits_sequence
     - 2D or 3D float list. shape==[seq_len, [num_class,] num_label].
