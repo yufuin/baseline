@@ -5,7 +5,7 @@ import re as _re
 import math as _math
 import collections as _collections
 import enum as _enum
-from typing import Optional as _Optional, Any as _Any, Annotated as _Annotated, Generic as _Generic, TypeVar as _TypeVar
+from typing import Optional as _Optional, Any as _Any, Annotated as _Annotated, Generic as _Generic, TypeVar as _TypeVar, Iterable as _Iterable
 
 import pydantic as _pydantic
 import numpy as _numpy
@@ -109,6 +109,19 @@ class NERInstance(_pydantic.BaseModel):
     model_config = _pydantic.ConfigDict(
         validate_assignment=True,
     )
+
+    def only_label_(self, label_or_labels:int|_Iterable[int]) -> "NERInstance":
+        if isinstance(label_or_labels, int):
+            label_or_labels = {label_or_labels}
+        elif not isinstance(label_or_labels, set):
+            label_or_labels = set(label_or_labels)
+        self.spans = [span for span in self.spans if span.label in label_or_labels]
+        if self.token_spans is not None:
+            self.token_spans = [token_span for token_span in self.token_spans if token_span.label in label_or_labels]
+        return self
+    def only_label(self, label_or_labels:int|_Iterable[int], deep:bool=True) -> "NERInstance":
+        out = self.model_copy(deep=deep)
+        return out.only_label_(label_or_labels)
 
     @classmethod
     def build(cls, text:str, spans:list[NERSpan], id:_Any=None, *, tokenizer:_Optional[TokenizerInterface]=None, add_special_tokens:_Optional[bool]=None, truncation:None|bool|NERTruncationScheme=None, max_length:_Optional[int]=None, stride:_Optional[int]=None, fit_token_span:_Optional[NERSpanFittingScheme]=None, add_split_idx_to_id:_Optional[bool]=None, return_non_truncated:_Optional[bool]=None, ignore_trim_offsets:_Optional[bool]=None, tokenizer_other_kwargs:_Optional[dict]=None):
@@ -255,7 +268,7 @@ class NERInstance(_pydantic.BaseModel):
         out = self.model_copy(deep=True)
         return out.with_special_tokens_(tokenizer=tokenizer)
 
-    def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:list[int], max_length:int, restrict_gold_class:_Optional[int]=None):
+    def with_query_and_special_tokens_(self, tokenizer:TokenizerInterface, encoded_query:list[int], max_length:int):
         assert not self.has_added_special_tokens, f'must be without special tokens. id:{self.id}'
 
         new_input_ids = tokenizer.build_inputs_with_special_tokens(encoded_query, self.token_ids)
@@ -276,15 +289,11 @@ class NERInstance(_pydantic.BaseModel):
         self.has_added_special_tokens = True
         self.info.forward_special_token_size = (_TWO_BECAUSE_OF_SPECIAL_TOKEN // 2) + len(encoded_query) + 1 # [BOS] prompt [SEP] ...
 
-        if restrict_gold_class is not None:
-            self.spans = [span for span in self.spans if span.label == restrict_gold_class]
-            self.token_spans = [token_span for token_span in self.token_spans if token_span.label == restrict_gold_class]
-
         return self
 
-    def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:list[int], max_length:int, restrict_gold_class:_Optional[int]=None):
+    def with_query_and_special_tokens(self, tokenizer:TokenizerInterface, encoded_query:list[int], max_length:int):
         out = self.model_copy(deep=True)
-        return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length, restrict_gold_class=restrict_gold_class)
+        return out.with_query_and_special_tokens_(tokenizer=tokenizer, encoded_query=encoded_query, max_length=max_length)
 
     def _split_with_size(self, max_length, stride, add_split_idx_to_id:bool):
         assert not self.has_added_special_tokens, f'must be without special tokens. id:{self.id}'
@@ -357,7 +366,7 @@ class NERInstance(_pydantic.BaseModel):
 
 
     @_pydantic.validate_call
-    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, restrict_gold_class:_Optional[int]=None, num_class_without_negative:_Optional[int]=None, strict:bool=True) -> list[int] | list[list[int]]:
+    def get_sequence_label(self, tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, num_class_without_negative:_Optional[int]=None, strict:bool=True) -> list[int] | list[list[int]]:
         """
         output := [label_0, label_1, label_2, ...]
 
@@ -399,10 +408,6 @@ class NERInstance(_pydantic.BaseModel):
         """
         if label_scheme == NERLabelScheme.MULTI_LABEL:
             assert num_class_without_negative is not None, "num_class_without_negative must be specified under the multi-labelling setting."
-        if restrict_gold_class is None:
-            target_spans = self.token_spans
-        else:
-            target_spans = [span for span in self.token_spans if span.label == restrict_gold_class]
 
         if label_scheme in [NERLabelScheme.SINGLE_LABEL, NERLabelScheme.SPAN_ONLY]:
             out = [int(NERSpanTag.O) for _ in range(len(self.token_ids))]
@@ -411,16 +416,16 @@ class NERInstance(_pydantic.BaseModel):
         else:
             raise ValueError(label_scheme)
 
-        for span in target_spans:
+        for span in self.token_spans:
             if tagging_scheme == NERTaggingScheme.BILOU:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {self.token_spans}'
                     target_out = out
                     class_offset = span.label * 4 # 4 <- len({B, I, L, U})
                 elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {self.token_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MULTI_LABEL:
@@ -440,12 +445,12 @@ class NERInstance(_pydantic.BaseModel):
             elif tagging_scheme == NERTaggingScheme.BIO:
                 if label_scheme == NERLabelScheme.SINGLE_LABEL:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {self.token_spans}'
                     target_out = out
                     class_offset = span.label * 2 # 2 <- len({B, I})
                 elif label_scheme == NERLabelScheme.SPAN_ONLY:
                     if strict:
-                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {target_spans}'
+                        assert all([t == NERSpanTag.O for t in out[span.start:span.end]]), f'there must not be overlapped spans: {self.token_spans}'
                     target_out = out
                     class_offset = 0
                 elif label_scheme == NERLabelScheme.MULTI_LABEL:
@@ -970,7 +975,7 @@ def ensemble_split_sequences(splits:list[NERInstance], corresponding_token_seque
 
 # %%
 if __name__ == "__main__":
-    tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased")
+    tok = _transformers.AutoTokenizer.from_pretrained("bert-base-cased", trim_offsets=False)
     # %%
     _instance_without_sp = NERInstance.build(
         text = "there is very long text in this instance. we need to truncate this instance so that the bert model can take this as the input.",
@@ -990,7 +995,7 @@ if __name__ == "__main__":
 
     # %%
     _encoded_query = tok("what model is used ?", add_special_tokens=False)["input_ids"]
-    _instance_with_query = _instance_without_sp.with_query_and_special_tokens(tokenizer=tok, encoded_query=_encoded_query, max_length=30, restrict_gold_class=3)
+    _instance_with_query = _instance_without_sp.only_label(3).with_query_and_special_tokens(tokenizer=tok, encoded_query=_encoded_query, max_length=30)
     _gold_label_for_query = _instance_with_query.get_sequence_label(tagging_scheme=NERTaggingScheme.BILOU, label_scheme=NERLabelScheme.SPAN_ONLY)
     print(_instance_with_query)
     print()
