@@ -721,6 +721,7 @@ def convert_sequence_label_to_spans(sequence_label:list[int]|list[list[int]], ta
             outs = [span.map_label(id_to_label) for span in outs]
     return outs
 
+@_pydantic.validate_call
 def viterbi_decode(logits_sequence:list[float]|list[list[float]]|list[list[list[float]]], tagging_scheme:NERTaggingScheme=NERTaggingScheme.BILOU, label_scheme:NERLabelScheme=NERLabelScheme.SINGLE_LABEL, scalar_logit_for_token_level:bool=False, as_spans:bool=False, id_to_label:_Optional[dict[int,NERLabelType]|_Callable[[int,],NERLabelType]]=None) -> list[int] | list[list[int]] | list[NERSpan]:
     """
     input: logits_sequence
