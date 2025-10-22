@@ -87,8 +87,8 @@ class Table:
         return df
 
 
-_ptn_text = _re.compile("^([^\t\|]+)\|([^\t\|]+)\|(.*)$")
-_ptn_entity = _re.compile("^([^\t\|]+)\t([0-9]+)\t([0-9]+)(.*)$")
+_ptn_text = _re.compile("^([^\t|]+)\\|([^\t|]+)\\|(.*)$")
+_ptn_entity = _re.compile("^([^\t|]+)\t([0-9]+)\t([0-9]+)(.*)$")
 
 def _format_doc(doc:dict):
     out = dict(doc)
